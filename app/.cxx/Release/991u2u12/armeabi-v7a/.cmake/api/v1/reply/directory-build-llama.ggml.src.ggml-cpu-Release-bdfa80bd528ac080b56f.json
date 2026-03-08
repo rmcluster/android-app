@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "build-llama/ggml/src/ggml-cpu",
+		"source" : "/home/angela/Code/SWAG/server/llama.cpp/ggml/src/ggml-cpu"
+	}
+}

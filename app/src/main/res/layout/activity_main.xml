@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:gravity="center_horizontal">
+
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Llama RPC Server"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/tvIpAddress"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="IP Address: Loading..."
+        android:textSize="18sp"
+        android:layout_marginBottom="16dp" />
+
+    <EditText
+        android:id="@+id/etHost"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Host IP (default 0.0.0.0)"
+        android:inputType="textUri"
+        android:text="0.0.0.0"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/etPort"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Port (default 50052)"
+        android:inputType="number"
+        android:text="50052"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/etDiscoveryIp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Discovery IP (default 192.168.1.183)"
+        android:inputType="textUri"
+        android:text="192.168.1.183"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/etDiscoveryPort"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Discovery Port (default 50055)"
+        android:inputType="number"
+        android:text="50055"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/etThreads"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Threads (default 4)"
+        android:inputType="number"
+        android:text="4"
+        android:layout_marginBottom="24dp" />
+
+    <Button
+        android:id="@+id/btnStart"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="START SERVER" />
+
+    <Button
+        android:id="@+id/btnStop"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="STOP (Process Restart)"
+        android:visibility="gone"
+        android:backgroundTint="#FF5252" />
+
+</LinearLayout>

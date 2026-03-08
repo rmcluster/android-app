@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "build-llama/vendor/cpp-httplib",
+		"source" : "/home/angela/Code/ggml/llama_cpp/vendor/cpp-httplib"
+	}
+}

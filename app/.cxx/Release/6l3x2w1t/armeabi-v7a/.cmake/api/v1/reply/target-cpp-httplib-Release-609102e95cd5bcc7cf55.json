@@ -1,0 +1,200 @@
+{
+	"archive" : {},
+	"artifacts" : 
+	[
+		{
+			"path" : "build-llama/vendor/cpp-httplib/libcpp-httplib.a"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"add_compile_options",
+			"llama_add_compile_flags",
+			"target_compile_options",
+			"target_link_libraries",
+			"target_compile_definitions"
+		],
+		"files" : 
+		[
+			"/home/angela/Code/ggml/llama_cpp/vendor/cpp-httplib/CMakeLists.txt",
+			"/home/angela/Code/ggml/llama_cpp/cmake/common.cmake"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 8,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 6,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 27,
+				"parent" : 2
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 14,
+				"parent" : 0
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 17,
+				"parent" : 0
+			},
+			{
+				"command" : 5,
+				"file" : 0,
+				"line" : 25,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -march=armv7-a -mthumb -Wformat -Werror=format-security  -std=c++17 -O3 -DNDEBUG  -fPIC"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wmissing-declarations"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wmissing-noreturn"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wall"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wextra"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wpedantic"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wcast-qual"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wno-unused-function"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wunreachable-code-break"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wunreachable-code-return"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wmissing-prototypes"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-Wextra-semi"
+				},
+				{
+					"backtrace" : 4,
+					"fragment" : "-w"
+				},
+				{
+					"backtrace" : 5,
+					"fragment" : "-pthread"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 6,
+					"define" : "CPPHTTPLIB_FORM_URL_ENCODED_PAYLOAD_MAX_LENGTH=1048576"
+				},
+				{
+					"backtrace" : 6,
+					"define" : "CPPHTTPLIB_LISTEN_BACKLOG=512"
+				},
+				{
+					"backtrace" : 6,
+					"define" : "CPPHTTPLIB_REQUEST_URI_MAX_LENGTH=32768"
+				},
+				{
+					"backtrace" : 6,
+					"define" : "CPPHTTPLIB_TCP_NODELAY=1"
+				}
+			],
+			"language" : "CXX",
+			"sourceIndexes" : 
+			[
+				0
+			],
+			"sysroot" : 
+			{
+				"path" : "/home/angela/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+			}
+		}
+	],
+	"id" : "cpp-httplib::@e1f36686b082eccf6cbc",
+	"name" : "cpp-httplib",
+	"nameOnDisk" : "libcpp-httplib.a",
+	"paths" : 
+	{
+		"build" : "build-llama/vendor/cpp-httplib",
+		"source" : "/home/angela/Code/ggml/llama_cpp/vendor/cpp-httplib"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0
+			]
+		},
+		{
+			"name" : "Header Files",
+			"sourceIndexes" : 
+			[
+				1
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/angela/Code/ggml/llama_cpp/vendor/cpp-httplib/httplib.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"path" : "/home/angela/Code/ggml/llama_cpp/vendor/cpp-httplib/httplib.h",
+			"sourceGroupIndex" : 1
+		}
+	],
+	"type" : "STATIC_LIBRARY"
+}

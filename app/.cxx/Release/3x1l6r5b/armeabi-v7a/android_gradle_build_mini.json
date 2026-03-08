@@ -1,0 +1,104 @@
+{
+  "buildFiles": [
+    "/home/angela/Code/ggml/llama-rpc-app/app/src/main/cpp/CMakeLists.txt",
+    "/home/angela/Code/ggml/llama_cpp/CMakeLists.txt",
+    "/home/angela/Code/ggml/llama_cpp/common/CMakeLists.txt",
+    "/home/angela/Code/ggml/llama_cpp/ggml/CMakeLists.txt",
+    "/home/angela/Code/ggml/llama_cpp/ggml/src/CMakeLists.txt",
+    "/home/angela/Code/ggml/llama_cpp/ggml/src/ggml-cpu/CMakeLists.txt",
+    "/home/angela/Code/ggml/llama_cpp/ggml/src/ggml-rpc/CMakeLists.txt",
+    "/home/angela/Code/ggml/llama_cpp/src/CMakeLists.txt",
+    "/home/angela/Code/ggml/llama_cpp/vendor/cpp-httplib/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/angela/Android/Sdk/cmake/3.22.1/bin/ninja",
+      "-v",
+      "-C",
+      "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/angela/Android/Sdk/cmake/3.22.1/bin/ninja",
+    "-v",
+    "-C",
+    "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "ggml-rpc::@2b8933fd821ef168b94d": {
+      "artifactName": "ggml-rpc",
+      "abi": "armeabi-v7a",
+      "output": "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-rpc.so",
+      "runtimeFiles": [
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-base.so"
+      ]
+    },
+    "ggml::@23533c6d68a59d54598d": {
+      "artifactName": "ggml",
+      "abi": "armeabi-v7a",
+      "output": "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml.so",
+      "runtimeFiles": [
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-cpu.so",
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-rpc.so",
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-base.so"
+      ]
+    },
+    "common::@8bf2afb4d8037c7b7d92": {
+      "artifactName": "common",
+      "abi": "armeabi-v7a",
+      "output": "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/build-llama/common/libcommon.a",
+      "runtimeFiles": []
+    },
+    "build_info::@8bf2afb4d8037c7b7d92": {
+      "artifactName": "build_info",
+      "abi": "armeabi-v7a",
+      "runtimeFiles": []
+    },
+    "llama-rpc::@6890427a1f51a3e7e1df": {
+      "artifactName": "llama-rpc",
+      "abi": "armeabi-v7a",
+      "output": "/home/angela/Code/ggml/llama-rpc-app/app/build/intermediates/cxx/Release/3x1l6r5b/obj/armeabi-v7a/libllama-rpc.so",
+      "runtimeFiles": [
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libllama.so",
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml.so",
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-cpu.so",
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-rpc.so",
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-base.so"
+      ]
+    },
+    "cpp-httplib::@e1f36686b082eccf6cbc": {
+      "artifactName": "cpp-httplib",
+      "abi": "armeabi-v7a",
+      "output": "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/build-llama/vendor/cpp-httplib/libcpp-httplib.a",
+      "runtimeFiles": []
+    },
+    "llama::@b791850eb95f38641ccb": {
+      "artifactName": "llama",
+      "abi": "armeabi-v7a",
+      "output": "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libllama.so",
+      "runtimeFiles": [
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml.so",
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-cpu.so",
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-rpc.so",
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-base.so"
+      ]
+    },
+    "ggml-cpu::@23533c6d68a59d54598d": {
+      "artifactName": "ggml-cpu",
+      "abi": "armeabi-v7a",
+      "output": "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-cpu.so",
+      "runtimeFiles": [
+        "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-base.so",
+        "/home/angela/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/18/lib/linux/arm/libomp.so"
+      ]
+    },
+    "ggml-base::@23533c6d68a59d54598d": {
+      "artifactName": "ggml-base",
+      "abi": "armeabi-v7a",
+      "output": "/home/angela/Code/ggml/llama-rpc-app/app/.cxx/Release/3x1l6r5b/armeabi-v7a/bin/libggml-base.so",
+      "runtimeFiles": []
+    }
+  }
+}

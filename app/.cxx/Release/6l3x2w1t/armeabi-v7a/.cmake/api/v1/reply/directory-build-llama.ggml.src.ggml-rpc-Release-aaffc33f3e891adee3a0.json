@@ -1,0 +1,53 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"install",
+			"ggml_add_backend_library"
+		],
+		"files" : 
+		[
+			"/home/angela/Code/ggml/llama_cpp/ggml/src/CMakeLists.txt",
+			"/home/angela/Code/ggml/llama_cpp/ggml/src/ggml-rpc/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 3,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 262,
+				"parent" : 1
+			}
+		]
+	},
+	"installers" : 
+	[
+		{
+			"backtrace" : 2,
+			"component" : "Unspecified",
+			"destination" : "lib",
+			"paths" : 
+			[
+				"bin/libggml-rpc.so"
+			],
+			"targetId" : "ggml-rpc::@2b8933fd821ef168b94d",
+			"targetIndex" : 6,
+			"type" : "target"
+		}
+	],
+	"paths" : 
+	{
+		"build" : "build-llama/ggml/src/ggml-rpc",
+		"source" : "/home/angela/Code/ggml/llama_cpp/ggml/src/ggml-rpc"
+	}
+}

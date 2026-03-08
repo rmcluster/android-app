@@ -1,0 +1,23 @@
+# Android specific
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+
+# Log files
+*.log
+
+# Android Studio
+.idea/
+*.iml
+*.iws
+
+# User-specific
+.DS_Store
+captures/
