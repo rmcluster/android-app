@@ -36,7 +36,7 @@
         android:id="@+id/etPort"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Port (default 50052)"
+        android:hint="Port (default: 50052)"
         android:inputType="number"
         android:text="50052"
         android:layout_marginBottom="8dp" />

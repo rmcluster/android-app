@@ -30,6 +30,7 @@ public class MainActivity extends AppCompatActivity {
         tvIpAddress = findViewById(R.id.tvIpAddress);
         etHost = findViewById(R.id.etHost);
         etPort = findViewById(R.id.etPort);
+        etPort.setText("50052");
         etDiscoveryIp = findViewById(R.id.etDiscoveryIp);
         etDiscoveryPort = findViewById(R.id.etDiscoveryPort);
         etThreads = findViewById(R.id.etThreads);
@@ -44,9 +45,11 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnStop.setOnClickListener(v -> {
-            // Since rpc server is blocking and doesn't have an interrupt, 
-            // we restart the process for a clean state if needed.
-            System.exit(0);
+            stopService(new Intent(this, RpcServerService.class));
+            btnStart.setEnabled(true);
+            btnStart.setText("START");
+            btnStop.setVisibility(View.GONE);
+            isRunning = false;
         });
 
         if (getIntent().getBooleanExtra("autoStart", false)) {

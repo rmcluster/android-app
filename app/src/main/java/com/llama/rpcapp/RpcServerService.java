@@ -7,7 +7,11 @@ import android.app.Service;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.BatteryManager;
+import android.content.IntentFilter;
 import android.util.Log;
+import android.content.pm.ServiceInfo;
+import java.net.URLEncoder;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -27,7 +31,31 @@ public class RpcServerService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        final String host = intent.getStringExtra("host") != null ? intent.getStringExtra("host") : "0.0.0.0";        final int port = intent.getIntExtra("port", 50052);
+        final String host = intent.getStringExtra("host") != null ? intent.getStringExtra("host") : "0.0.0.0";
+        int requestedPort = intent.getIntExtra("port", 50052);
+        
+        // Find a free IPv4 port if the requested one is occupied
+        int assignedPort = requestedPort;
+        try {
+            java.net.ServerSocket s = new java.net.ServerSocket();
+            s.setReuseAddress(false);
+            s.bind(new java.net.InetSocketAddress("0.0.0.0", requestedPort));
+            s.close();
+        } catch (java.io.IOException e) {
+            try {
+                java.net.ServerSocket s = new java.net.ServerSocket();
+                s.setReuseAddress(false);
+                s.bind(new java.net.InetSocketAddress("0.0.0.0", 0));
+                assignedPort = s.getLocalPort();
+                s.close();
+                Log.w(TAG, "Port " + requestedPort + " was occupied. Dynamically bound to " + assignedPort);
+            } catch (java.io.IOException ex) {
+                Log.e(TAG, "Could not find a free port", ex);
+            }
+        }
+        
+        final int finalPort = assignedPort;
+
         final String discoveryIp = intent.getStringExtra("discoveryIp");
         final int discoveryPort = intent.getIntExtra("discoveryPort", 50055);
         final int threads = intent.getIntExtra("threads", 4);
@@ -40,24 +68,30 @@ public class RpcServerService extends Service {
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Llama RPC Server")
-                .setContentText("Running on " + displayHost + ":" + port)
+                .setContentText("Running on " + displayHost + ":" + finalPort)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build();
 
-        startForeground(1, notification);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(1, notification);
+        }
 
         serverThread = new Thread(() -> {
             try {
-                Log.i(TAG, "Starting RPC server thread on " + host + ":" + port);
+                Log.i(TAG, "Starting RPC server thread on " + host + ":" + finalPort);
                 if (discoveryIp != null) {
-                    startDiscoveryPing(discoveryIp, discoveryPort, port);
+                    startDiscoveryPing(discoveryIp, discoveryPort, finalPort);
                 }
-                nativeServer.startServer(host, port, threads);
+                String cacheDir = getCacheDir().getAbsolutePath();
+                nativeServer.startServer(host, finalPort, threads, cacheDir);
                 Log.i(TAG, "RPC server thread finished.");
             } catch (Throwable t) {
                 Log.e(TAG, "FATAL: RPC server thread crashed", t);
             } finally {
                 isRunning = false;
+                stopForeground(true);
                 stopSelf();
             }
         });
@@ -92,9 +126,36 @@ public class RpcServerService extends Service {
     private void startDiscoveryPing(String targetIp, int targetPort, int servicePort) {
         isRunning = true;
         discoveryThread = new Thread(() -> {
-            String urlString = "http://" + targetIp + ":" + targetPort + "/announce?port=" + servicePort;
+            try {
+                // Give the native server a moment to bind to the port
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
             while (isRunning) {
                 try {
+                    String model = Build.MODEL;
+                    long maxSize = nativeServer != null ? nativeServer.getMaxSize() : 0;
+                    
+                    Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                    int level = batteryIntent != null ? batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) : -1;
+                    int scale = batteryIntent != null ? batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1) : -1;
+                    float battery = -1.0f;
+                    if (level != -1 && scale != -1) {
+                        battery = (level / (float)scale) * 100.0f;
+                    }
+                    int tempTenths = batteryIntent != null ? batteryIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) : -1;
+                    float temperature = tempTenths != -1 ? tempTenths / 10.0f : -1.0f;
+
+                    String localIp = getLocalIpAddress();
+                    String urlString = "http://" + targetIp + ":" + targetPort + "/announce?port=" + servicePort
+                            + "&ip=" + localIp
+                            + "&model=" + URLEncoder.encode(model, "UTF-8")
+                            + "&max_size=" + maxSize
+                            + "&battery=" + battery
+                            + "&temperature=" + temperature;
+
                     java.net.URL url = new java.net.URL(urlString);
                     java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
                     conn.setRequestMethod("GET");
@@ -135,10 +196,13 @@ public class RpcServerService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        Log.i(TAG, "Service destroyed. Note: ggml-rpc server might not stop cleanly without process kill.");
+        Log.i(TAG, "Service destroyed. Requesting native server stop...");
         isRunning = false;
         if (discoveryThread != null) {
             discoveryThread.interrupt();
+        }
+        if (nativeServer != null) {
+            nativeServer.stopServer();
         }
     }
 
