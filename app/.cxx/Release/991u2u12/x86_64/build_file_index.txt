@@ -1,9 +1,0 @@
-/home/angela/Code/SWAG/server/llama-rpc-app/app/src/main/cpp/CMakeLists.txt
-/home/angela/Code/SWAG/server/llama.cpp/CMakeLists.txt
-/home/angela/Code/SWAG/server/llama.cpp/common/CMakeLists.txt
-/home/angela/Code/SWAG/server/llama.cpp/ggml/CMakeLists.txt
-/home/angela/Code/SWAG/server/llama.cpp/ggml/src/CMakeLists.txt
-/home/angela/Code/SWAG/server/llama.cpp/ggml/src/ggml-cpu/CMakeLists.txt
-/home/angela/Code/SWAG/server/llama.cpp/ggml/src/ggml-rpc/CMakeLists.txt
-/home/angela/Code/SWAG/server/llama.cpp/src/CMakeLists.txt
-/home/angela/Code/SWAG/server/llama.cpp/vendor/cpp-httplib/CMakeLists.txt

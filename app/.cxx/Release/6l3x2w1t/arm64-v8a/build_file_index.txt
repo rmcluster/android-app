@@ -1,9 +1,0 @@
-/home/angela/Code/ggml/llama-rpc-app/app/src/main/cpp/CMakeLists.txt
-/home/angela/Code/ggml/llama_cpp/CMakeLists.txt
-/home/angela/Code/ggml/llama_cpp/common/CMakeLists.txt
-/home/angela/Code/ggml/llama_cpp/ggml/CMakeLists.txt
-/home/angela/Code/ggml/llama_cpp/ggml/src/CMakeLists.txt
-/home/angela/Code/ggml/llama_cpp/ggml/src/ggml-cpu/CMakeLists.txt
-/home/angela/Code/ggml/llama_cpp/ggml/src/ggml-rpc/CMakeLists.txt
-/home/angela/Code/ggml/llama_cpp/src/CMakeLists.txt
-/home/angela/Code/ggml/llama_cpp/vendor/cpp-httplib/CMakeLists.txt

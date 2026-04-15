@@ -21,3 +21,14 @@ gen/
 # User-specific
 .DS_Store
 captures/
+
+# C++ build artifacts
+.externalNativeBuild/
+app/.cxx/
+obj/
+
+# Misc
+*.pyc
+*.swp
+*~
+.DS_Store
