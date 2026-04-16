@@ -6,6 +6,7 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.text.format.Formatter;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -14,42 +15,42 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
-import java.util.Locale;
-
 public class MainActivity extends AppCompatActivity {
     private TextView tvIpAddress;
     private EditText etPort, etThreads, etHost, etDiscoveryIp, etDiscoveryPort;
     private Button btnStart, btnStop;
-    private boolean isRunning = false;
+    private SettingsRepository settings;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        settings = new SettingsRepository(this);
+
         tvIpAddress = findViewById(R.id.tvIpAddress);
         etHost = findViewById(R.id.etHost);
         etPort = findViewById(R.id.etPort);
-        etPort.setText("50052");
         etDiscoveryIp = findViewById(R.id.etDiscoveryIp);
         etDiscoveryPort = findViewById(R.id.etDiscoveryPort);
         etThreads = findViewById(R.id.etThreads);
         btnStart = findViewById(R.id.btnStart);
         btnStop = findViewById(R.id.btnStop);
 
+        // Load saved settings
+        loadSettings();
+
         String ip = getWifiIpAddress();
         tvIpAddress.setText(String.format("IP Address: %s", ip));
 
         btnStart.setOnClickListener(v -> {
+            saveSettings();
             startRpcService();
         });
 
         btnStop.setOnClickListener(v -> {
             stopService(new Intent(this, RpcServerService.class));
-            btnStart.setEnabled(true);
-            btnStart.setText("START");
-            btnStop.setVisibility(View.GONE);
-            isRunning = false;
+            setServerUiState(false);
         });
 
         if (getIntent().getBooleanExtra("autoStart", false)) {
@@ -57,26 +58,46 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        etPort.setText(String.valueOf(settings.loadConfig().port));
+    }
+
+    private void loadSettings() {
+        ServerConfig config = settings.loadConfig();
+        etHost.setText(config.host);
+        etPort.setText(String.valueOf(config.port));
+        etDiscoveryIp.setText(config.discoveryIp);
+        etDiscoveryPort.setText(String.valueOf(config.discoveryPort));
+        etThreads.setText(String.valueOf(config.threads));
+    }
+
+    private void saveSettings() {
+        try {
+            ServerConfig config = new ServerConfig(
+                    etHost.getText().toString(),
+                    Integer.parseInt(etPort.getText().toString()),
+                    etDiscoveryIp.getText().toString(),
+                    Integer.parseInt(etDiscoveryPort.getText().toString()),
+                    Integer.parseInt(etThreads.getText().toString())
+            );
+            settings.saveConfig(config);
+        } catch (NumberFormatException e) {
+            Log.e("MainActivity", "Failed to save settings: invalid number format", e);
+        }
+    }
+
     private void startRpcService() {
-        String host = etHost.getText().toString();
-        int port = Integer.parseInt(etPort.getText().toString());
-        String discoveryIp = etDiscoveryIp.getText().toString();
-        int discoveryPort = Integer.parseInt(etDiscoveryPort.getText().toString());
-        int threads = Integer.parseInt(etThreads.getText().toString());
-
         Intent serviceIntent = new Intent(this, RpcServerService.class);
-        serviceIntent.putExtra("host", host);
-        serviceIntent.putExtra("port", port);
-        serviceIntent.putExtra("discoveryIp", discoveryIp);
-        serviceIntent.putExtra("discoveryPort", discoveryPort);
-        serviceIntent.putExtra("threads", threads);
-
         ContextCompat.startForegroundService(this, serviceIntent);
-        
-        btnStart.setEnabled(false);
-        btnStart.setText("SERVER RUNNING");
-        btnStop.setVisibility(View.VISIBLE);
-        isRunning = true;
+        setServerUiState(true);
+    }
+
+    private void setServerUiState(boolean running) {
+        btnStart.setEnabled(!running);
+        btnStart.setText(running ? "SERVER RUNNING" : "START SERVER");
+        btnStop.setVisibility(running ? View.VISIBLE : View.GONE);
     }
 
     private String getWifiIpAddress() {
