@@ -17,6 +17,7 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 public class RpcServerService extends Service {
+    private static final String LOG_TAG = "RpcServerService";
     private Thread serverThread;
     private Process rpcProcess;
     private NativeRpcServer nativeServer;
@@ -60,7 +61,7 @@ public class RpcServerService extends Service {
         ));
 
         if (!hasDiscoveryIp) {
-            Log.w("RpcServerService", "No discoveryIp provided. Discovery ping will not start.");
+            Log.w(LOG_TAG, "No discoveryIp provided. Discovery ping will not start.");
         }
 
         String displayHost = host.equals("0.0.0.0") ? getLocalIpAddress() : host;
@@ -79,7 +80,7 @@ public class RpcServerService extends Service {
 
         serverThread = new Thread(() -> {
             try {
-                Log.i("RpcServerService", "Starting RPC server process on " + host + ":" + assignedPort);
+                Log.i(LOG_TAG, "Starting RPC server process on " + host + ":" + assignedPort);
                 if (hasDiscoveryIp) {
                     startDiscoveryPing(discoveryIp, discoveryPort, assignedPort);
                 }
@@ -106,9 +107,9 @@ public class RpcServerService extends Service {
                 }
                 
                 int exitCode = rpcProcess.waitFor();
-                Log.i("RpcServerService", "RPC server process exited with code " + exitCode);
+                Log.i(LOG_TAG, "RPC server process exited with code " + exitCode);
             } catch (Throwable t) {
-                Log.e("RpcServerService", "FATAL: RPC server process crashed", t);
+                Log.e(LOG_TAG, "FATAL: RPC server process crashed", t);
             } finally {
                 isRunning = false;
                 stopForeground(true);
@@ -127,10 +128,10 @@ public class RpcServerService extends Service {
         } catch (java.io.IOException e) {
             try {
                 int assignedPort = tryBindPort(0);
-                Log.w("RpcServerService", "Port " + requestedPort + " was occupied. Dynamically bound to " + assignedPort);
+                Log.w(LOG_TAG, "Port " + requestedPort + " was occupied. Dynamically bound to " + assignedPort);
                 return assignedPort;
             } catch (java.io.IOException ex) {
-                Log.e("RpcServerService", "Could not find a free port", ex);
+                Log.e(LOG_TAG, "Could not find a free port", ex);
                 return requestedPort;
             }
         }
@@ -152,13 +153,13 @@ public class RpcServerService extends Service {
                 for (java.util.Enumeration<java.net.InetAddress> enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements(); ) {
                     java.net.InetAddress inetAddress = enumIpAddr.nextElement();
                     if (!inetAddress.isLoopbackAddress() && inetAddress instanceof java.net.Inet4Address) {
-                        Log.i("RpcServerService", "Found IP via NetworkInterface (" + intf.getName() + "): " + inetAddress.getHostAddress());
+                        Log.i(LOG_TAG, "Found IP via NetworkInterface (" + intf.getName() + "): " + inetAddress.getHostAddress());
                         return inetAddress.getHostAddress();
                     }
                 }
             }
         } catch (Exception ex) {
-            Log.e("RpcServerService", "IP Address error", ex);
+            Log.e(LOG_TAG, "IP Address error", ex);
         }
         return "0.0.0.0";
     }
@@ -189,13 +190,14 @@ public class RpcServerService extends Service {
                             + "&temperature=" + temperature;
 
                     java.net.URL url = new java.net.URL(urlString);
-                    try (java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection()) {
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    try {
                         conn.setRequestMethod("GET");
                         conn.setConnectTimeout(5000);
                         conn.setReadTimeout(5000);
                         int responseCode = conn.getResponseCode();
                         if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
-                            Log.e("RpcServerService", "Failed to announce to tracker, response code: " + responseCode);
+                            Log.e(LOG_TAG, "Failed to announce to tracker, response code: " + responseCode);
                             Thread.sleep(1000);
                             continue;
                         }
@@ -203,15 +205,17 @@ public class RpcServerService extends Service {
                              java.util.Scanner scanner = new java.util.Scanner(in).useDelimiter("\\A")) {
                             String responseBody = scanner.hasNext() ? scanner.next() : "";
                             int interval = new org.json.JSONObject(responseBody).getInt("interval");
-                            Log.d("RpcServerService", "Announced to tracker, reannouncing in " + interval + " seconds");
+                            Log.d(LOG_TAG, "Announced to tracker, reannouncing in " + interval + " seconds");
                             Thread.sleep(interval * 1000L);
                         }
+                    } finally {
+                        conn.disconnect();
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
-                    Log.e("RpcServerService", "Error in discovery thread", e);
+                    Log.e(LOG_TAG, "Error in discovery thread", e);
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException ie) {
@@ -243,7 +247,7 @@ public class RpcServerService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        Log.i("RpcServerService", "Service destroyed. Requesting process stop...");
+        Log.i(LOG_TAG, "Service destroyed. Requesting process stop...");
         isRunning = false;
         if (discoveryThread != null) {
             discoveryThread.interrupt();

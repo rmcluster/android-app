@@ -11,8 +11,8 @@
 #include "ggml-rpc.h"
 
 #define TAG "LLAMA_RPC_SERVER"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#define LOG_INFO(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOG_ERROR(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 static std::string g_ggml_log_buffer;
 static int pfd[2] = {-1, -1};
@@ -42,8 +42,8 @@ static void ggml_log_callback_android(ggml_log_level level, const char * text, v
 
 int main(int argc, char * argv[]) {
     // Expected arguments: <host> <port> <n_threads> <cache_dir>
-    if (argc < 4) {
-        LOGE("Invalid arguments. Expected: host port threads [cache_dir]");
+    if (argc != 4) {
+        LOG_ERROR("Invalid arguments. Expected: host port threads [cache_dir]");
         return 1;
     }
 
@@ -54,19 +54,19 @@ int main(int argc, char * argv[]) {
         port = std::stoi(argv[2]);
         n_threads = std::stoi(argv[3]);
     } catch (const std::exception & e) {
-        LOGE("Failed to parse port/threads: %s", e.what());
+        LOG_ERROR("Failed to parse port/threads: %s", e.what());
         return 1;
     }
     const char * cache_dir = argc >= 5 ? argv[4] : nullptr;
 
     std::string endpoint = host + ":" + std::to_string(port);
 
-    LOGI("Starting RPC server on %s with %d threads, cache: %s", endpoint.c_str(), n_threads, cache_dir ? cache_dir : "null");
+    LOG_INFO("Starting RPC server on %s with %d threads, cache: %s", endpoint.c_str(), n_threads, cache_dir ? cache_dir : "null");
 
     setvbuf(stdout, 0, _IOLBF, 0);
     setvbuf(stderr, 0, _IONBF, 0);
     if (pipe(pfd) != 0 || dup2(pfd[1], 1) < 0 || dup2(pfd[1], 2) < 0) {
-        LOGE("Failed to initialize stdout/stderr redirection");
+        LOG_ERROR("Failed to initialize stdout/stderr redirection");
         return 1;
     }
 
@@ -76,7 +76,7 @@ int main(int argc, char * argv[]) {
         while ((readSize = read(pfd[0], buf, sizeof buf - 1)) > 0) {
             if(buf[readSize-1] == '\n') --readSize;
             buf[readSize] = 0;
-            LOGI("GGML_OUT: %s", buf);
+            LOG_INFO("GGML_OUT: %s", buf);
         }
     });
     logger.detach();
@@ -93,13 +93,13 @@ int main(int argc, char * argv[]) {
     }
     
     if (devices.empty()) {
-        LOGE("No CPU device found!");
+        LOG_ERROR("No CPU device found!");
         return 1;
     }
 
     ggml_backend_reg_t reg = ggml_backend_reg_by_name("RPC");
     if (!reg) {
-        LOGE("Failed to find RPC backend");
+        LOG_ERROR("Failed to find RPC backend");
         return 1;
     }
 
@@ -107,13 +107,13 @@ int main(int argc, char * argv[]) {
                            ggml_backend_reg_get_proc_address(reg, "ggml_backend_rpc_start_server");
     
     if (!start_server_fn) {
-        LOGE("Failed to obtain RPC backend start server function");
+        LOG_ERROR("Failed to obtain RPC backend start server function");
         return 1;
     }
 
-    LOGI("Invoking start_server_fn...");
+    LOG_INFO("Invoking start_server_fn...");
     start_server_fn(endpoint.c_str(), cache_dir, (size_t)n_threads, devices.size(), devices.data());
     
-    LOGI("RPC server stopped cleanly");
+    LOG_INFO("RPC server stopped cleanly");
     return 0;
 }

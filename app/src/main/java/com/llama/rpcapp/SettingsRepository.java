@@ -20,7 +20,7 @@ public class SettingsRepository {
     public ServerConfig loadConfig() {
         return new ServerConfig(
                 prefs.getString(KEY_HOST, "0.0.0.0"),
-                prefs.getInt(KEY_PORT, 50052),
+                prefs.getInt(KEY_PORT, 47671),
                 prefs.getString(KEY_DISCOVERY_IP, ""),
                 prefs.getInt(KEY_DISCOVERY_PORT, 4917),
                 prefs.getInt(KEY_THREADS, 4)

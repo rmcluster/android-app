@@ -4,7 +4,23 @@ Runs discovery thread to ping the server on regular intervals (health + availabi
 
 ## Build and Install Instructions
 
+### Prerequisites
+
+- Android Studio + JDK (tested w/ JDK 21)
+- Android SDK + platform-tools (adb, tested w/ 36) + NDK + CMake
+
+Install Android Studio, then install SDK/NDK/CMake packages via the Setup Wizard or SDK Manager.
+
+Check with:
+
+```bash
+java -version
+adb version
 ```
+
+### Build + install debug APK
+
+```bash
 cd android-app
 ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -12,7 +28,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 ## Components
 
-### Java/Kotlin-side
+### Java-side
 
 - `app/src/main/java/com/llama/rpcapp/MainActivity.java`
   - Owns user input UI (host/port/discovery/threads) and start/stop actions.
