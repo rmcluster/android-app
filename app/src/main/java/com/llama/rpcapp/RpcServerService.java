@@ -17,58 +17,58 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 public class RpcServerService extends Service {
-    private static final String TAG = "RpcServerService";
-    private static final String CHANNEL_ID = "RpcServerChannel";
+    private static final String LOG_TAG = "RpcServerService";
     private Thread serverThread;
+    private Process rpcProcess;
     private NativeRpcServer nativeServer;
+    private Thread discoveryThread;
+    private volatile boolean isRunning = false;
 
     @Override
     public void onCreate() {
         super.onCreate();
         nativeServer = new NativeRpcServer();
-        createNotificationChannel();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    "RpcServerChannel",
+                    "RPC Server Service Channel",
+                    NotificationManager.IMPORTANCE_DEFAULT
+            );
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(serviceChannel);
+        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        final String host = intent.getStringExtra("host") != null ? intent.getStringExtra("host") : "0.0.0.0";
-        int requestedPort = intent.getIntExtra("port", 50052);
-        
-        // Find a free IPv4 port if the requested one is occupied
-        int assignedPort = requestedPort;
-        try {
-            java.net.ServerSocket s = new java.net.ServerSocket();
-            s.setReuseAddress(false);
-            s.bind(new java.net.InetSocketAddress("0.0.0.0", requestedPort));
-            s.close();
-        } catch (java.io.IOException e) {
-            try {
-                java.net.ServerSocket s = new java.net.ServerSocket();
-                s.setReuseAddress(false);
-                s.bind(new java.net.InetSocketAddress("0.0.0.0", 0));
-                assignedPort = s.getLocalPort();
-                s.close();
-                Log.w(TAG, "Port " + requestedPort + " was occupied. Dynamically bound to " + assignedPort);
-            } catch (java.io.IOException ex) {
-                Log.e(TAG, "Could not find a free port", ex);
-            }
-        }
-        
-        final int finalPort = assignedPort;
+        SettingsRepository settings = new SettingsRepository(this);
+        ServerConfig baseConfig = settings.loadConfig();
 
-        final String discoveryIp = intent.getStringExtra("discoveryIp");
-        final int discoveryPort = intent.getIntExtra("discoveryPort", 50055);
-        final int threads = intent.getIntExtra("threads", 4);
+        String host = baseConfig.host;
+        int requestedPort = baseConfig.port;
+        String discoveryIp = baseConfig.discoveryIp;
+        int discoveryPort = baseConfig.discoveryPort;
+        int threads = baseConfig.threads;
+        boolean hasDiscoveryIp = !discoveryIp.isEmpty();
 
-        if (discoveryIp == null) {
-            Log.w(TAG, "No discoveryIp provided. Discovery ping will not start.");
+        int assignedPort = findAvailablePort(requestedPort);
+        settings.saveConfig(new ServerConfig(
+                host,
+                assignedPort,
+                discoveryIp,
+                discoveryPort,
+                threads
+        ));
+
+        if (!hasDiscoveryIp) {
+            Log.w(LOG_TAG, "No discoveryIp provided. Discovery ping will not start.");
         }
 
-        final String displayHost = host.equals("0.0.0.0") ? getLocalIpAddress() : host;
+        String displayHost = host.equals("0.0.0.0") ? getLocalIpAddress() : host;
 
-        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+        Notification notification = new NotificationCompat.Builder(this, "RpcServerChannel")
                 .setContentTitle("Llama RPC Server")
-                .setContentText("Running on " + displayHost + ":" + finalPort)
+                .setContentText("Running on " + displayHost + ":" + assignedPort)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build();
 
@@ -80,15 +80,36 @@ public class RpcServerService extends Service {
 
         serverThread = new Thread(() -> {
             try {
-                Log.i(TAG, "Starting RPC server thread on " + host + ":" + finalPort);
-                if (discoveryIp != null) {
-                    startDiscoveryPing(discoveryIp, discoveryPort, finalPort);
+                Log.i(LOG_TAG, "Starting RPC server process on " + host + ":" + assignedPort);
+                if (hasDiscoveryIp) {
+                    startDiscoveryPing(discoveryIp, discoveryPort, assignedPort);
                 }
                 String cacheDir = getCacheDir().getAbsolutePath();
-                nativeServer.startServer(host, finalPort, threads, cacheDir);
-                Log.i(TAG, "RPC server thread finished.");
+                
+                String executablePath = getApplicationInfo().nativeLibraryDir + "/librpc-server.so";
+                ProcessBuilder pb = new ProcessBuilder(
+                    executablePath,
+                    host,
+                    String.valueOf(assignedPort),
+                    String.valueOf(threads),
+                    cacheDir
+                );
+                pb.environment().put("LD_LIBRARY_PATH", getApplicationInfo().nativeLibraryDir);
+                pb.redirectErrorStream(true);
+                rpcProcess = pb.start();
+                
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(rpcProcess.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        Log.d("LLAMA_RPC_APP", "STDOUT: " + line);
+                    }
+                }
+                
+                int exitCode = rpcProcess.waitFor();
+                Log.i(LOG_TAG, "RPC server process exited with code " + exitCode);
             } catch (Throwable t) {
-                Log.e(TAG, "FATAL: RPC server thread crashed", t);
+                Log.e(LOG_TAG, "FATAL: RPC server process crashed", t);
             } finally {
                 isRunning = false;
                 stopForeground(true);
@@ -100,6 +121,30 @@ public class RpcServerService extends Service {
         return START_NOT_STICKY;
     }
 
+    private int findAvailablePort(int requestedPort) {
+        try {
+            tryBindPort(requestedPort);
+            return requestedPort;
+        } catch (java.io.IOException e) {
+            try {
+                int assignedPort = tryBindPort(0);
+                Log.w(LOG_TAG, "Port " + requestedPort + " was occupied. Dynamically bound to " + assignedPort);
+                return assignedPort;
+            } catch (java.io.IOException ex) {
+                Log.e(LOG_TAG, "Could not find a free port", ex);
+                return requestedPort;
+            }
+        }
+    }
+
+    private int tryBindPort(int port) throws java.io.IOException {
+        try (java.net.ServerSocket socket = new java.net.ServerSocket()) {
+            socket.setReuseAddress(false);
+            socket.bind(new java.net.InetSocketAddress("0.0.0.0", port));
+            return socket.getLocalPort();
+        }
+    }
+
     private String getLocalIpAddress() {
         try {
             for (java.util.Enumeration<java.net.NetworkInterface> en = java.net.NetworkInterface.getNetworkInterfaces(); en.hasMoreElements(); ) {
@@ -108,20 +153,16 @@ public class RpcServerService extends Service {
                 for (java.util.Enumeration<java.net.InetAddress> enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements(); ) {
                     java.net.InetAddress inetAddress = enumIpAddr.nextElement();
                     if (!inetAddress.isLoopbackAddress() && inetAddress instanceof java.net.Inet4Address) {
-                        Log.i(TAG, "Found IP via NetworkInterface (" + intf.getName() + "): " + inetAddress.getHostAddress());
+                        Log.i(LOG_TAG, "Found IP via NetworkInterface (" + intf.getName() + "): " + inetAddress.getHostAddress());
                         return inetAddress.getHostAddress();
                     }
                 }
             }
         } catch (Exception ex) {
-            Log.e(TAG, "IP Address error", ex);
+            Log.e(LOG_TAG, "IP Address error", ex);
         }
         return "0.0.0.0";
     }
-
-    //discovery logic
-    private Thread discoveryThread;
-    private volatile boolean isRunning = false;
 
     private void startDiscoveryPing(String targetIp, int targetPort, int servicePort) {
         isRunning = true;
@@ -137,16 +178,8 @@ public class RpcServerService extends Service {
                 try {
                     String model = Build.MODEL;
                     long maxSize = nativeServer != null ? nativeServer.getMaxSize() : 0;
-                    
-                    Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-                    int level = batteryIntent != null ? batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) : -1;
-                    int scale = batteryIntent != null ? batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1) : -1;
-                    float battery = -1.0f;
-                    if (level != -1 && scale != -1) {
-                        battery = (level / (float)scale) * 100.0f;
-                    }
-                    int tempTenths = batteryIntent != null ? batteryIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) : -1;
-                    float temperature = tempTenths != -1 ? tempTenths / 10.0f : -1.0f;
+                    float battery = readBatteryPercent();
+                    float temperature = readBatteryTemperatureC();
 
                     String localIp = getLocalIpAddress();
                     String urlString = "http://" + targetIp + ":" + targetPort + "/announce?port=" + servicePort
@@ -158,29 +191,31 @@ public class RpcServerService extends Service {
 
                     java.net.URL url = new java.net.URL(urlString);
                     java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("GET");
-                    conn.setConnectTimeout(5000);
-                    conn.setReadTimeout(5000);
-
-                    int responseCode = conn.getResponseCode();
-                    if (responseCode == java.net.HttpURLConnection.HTTP_OK) {
-                        java.io.InputStream in = conn.getInputStream();
-                        java.util.Scanner scanner = new java.util.Scanner(in).useDelimiter("\\A");
-                        String responseBody = scanner.hasNext() ? scanner.next() : "";
-                        org.json.JSONObject json = new org.json.JSONObject(responseBody);
-                        int interval = json.getInt("interval");
-                        Log.d(TAG, "Announced to tracker, reannouncing in " + interval + " seconds");
-                        Thread.sleep(interval * 1000L);
-                    } else {
-                        Log.e(TAG, "Failed to announce to tracker, response code: " + responseCode);
-                        Thread.sleep(1000);
+                    try {
+                        conn.setRequestMethod("GET");
+                        conn.setConnectTimeout(5000);
+                        conn.setReadTimeout(5000);
+                        int responseCode = conn.getResponseCode();
+                        if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
+                            Log.e(LOG_TAG, "Failed to announce to tracker, response code: " + responseCode);
+                            Thread.sleep(1000);
+                            continue;
+                        }
+                        try (java.io.InputStream in = conn.getInputStream();
+                             java.util.Scanner scanner = new java.util.Scanner(in).useDelimiter("\\A")) {
+                            String responseBody = scanner.hasNext() ? scanner.next() : "";
+                            int interval = new org.json.JSONObject(responseBody).getInt("interval");
+                            Log.d(LOG_TAG, "Announced to tracker, reannouncing in " + interval + " seconds");
+                            Thread.sleep(interval * 1000L);
+                        }
+                    } finally {
+                        conn.disconnect();
                     }
-                    conn.disconnect();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
-                    Log.e(TAG, "Error in discovery thread", e);
+                    Log.e(LOG_TAG, "Error in discovery thread", e);
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException ie) {
@@ -193,16 +228,32 @@ public class RpcServerService extends Service {
         discoveryThread.start();
     }
 
+    private float readBatteryPercent() {
+        Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        int level = batteryIntent != null ? batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) : -1;
+        int scale = batteryIntent != null ? batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1) : -1;
+        if (level == -1 || scale <= 0) {
+            return -1.0f;
+        }
+        return (level / (float) scale) * 100.0f;
+    }
+
+    private float readBatteryTemperatureC() {
+        Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        int tempTenths = batteryIntent != null ? batteryIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) : -1;
+        return tempTenths != -1 ? tempTenths / 10.0f : -1.0f;
+    }
+
     @Override
     public void onDestroy() {
         super.onDestroy();
-        Log.i(TAG, "Service destroyed. Requesting native server stop...");
+        Log.i(LOG_TAG, "Service destroyed. Requesting process stop...");
         isRunning = false;
         if (discoveryThread != null) {
             discoveryThread.interrupt();
         }
-        if (nativeServer != null) {
-            nativeServer.stopServer();
+        if (rpcProcess != null) {
+            rpcProcess.destroy();
         }
     }
 
@@ -212,15 +263,4 @@ public class RpcServerService extends Service {
         return null;
     }
 
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel serviceChannel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "RPC Server Service Channel",
-                    NotificationManager.IMPORTANCE_DEFAULT
-            );
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(serviceChannel);
-        }
-    }
 }
