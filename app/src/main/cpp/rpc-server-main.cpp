@@ -57,7 +57,7 @@ int main(int argc, char * argv[]) {
         LOG_ERROR("Failed to parse port/threads: %s", e.what());
         return 1;
     }
-    const char * cache_dir = argc == 5 ? argv[4] : nullptr;
+    const char * cache_dir = argc >= 5 ? argv[4] : nullptr;
 
     std::string endpoint = host + ":" + std::to_string(port);
 
