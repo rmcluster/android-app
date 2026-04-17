@@ -27,7 +27,7 @@
         android:id="@+id/etHost"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Host IP (default 0.0.0.0)"
+        android:hint="Host IP"
         android:inputType="textUri"
         android:text="0.0.0.0"
         android:layout_marginBottom="8dp" />
@@ -36,27 +36,26 @@
         android:id="@+id/etPort"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Port (default: 50052)"
+        android:hint="Port [Preferred: 47671]"
         android:inputType="number"
-        android:text="50052"
+        android:text=""
         android:layout_marginBottom="8dp" />
 
     <EditText
         android:id="@+id/etDiscoveryIp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Discovery IP (default 192.168.1.183)"
+        android:hint="Discovery IP"
         android:inputType="textUri"
-        android:text="192.168.1.183"
+        android:text=""
         android:layout_marginBottom="8dp" />
 
     <EditText
         android:id="@+id/etDiscoveryPort"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Discovery Port (default 50055)"
+        android:hint="Discovery Port (default 4917)"
         android:inputType="number"
-        android:text="50055"
         android:layout_marginBottom="8dp" />
 
     <EditText
@@ -65,7 +64,6 @@
         android:layout_height="wrap_content"
         android:hint="Threads (default 4)"
         android:inputType="number"
-        android:text="4"
         android:layout_marginBottom="24dp" />
 
     <Button
