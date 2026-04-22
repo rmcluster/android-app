@@ -1,6 +1,0 @@
-<resources>
-    <string name="default_host">0.0.0.0</string>
-    <string name="default_port">50052</string>
-    <string name="default_discovery_ip">192.168.1.183</string>
-    <string name="app_name">AI Chat basic sample</string>
-</resources>
