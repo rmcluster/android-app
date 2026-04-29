@@ -66,7 +66,7 @@ public class StorageServer extends NanoHTTPD {
                 if (!SHA256_PATTERN.matcher(chunkId).matches()) {
                     //match return format: 400 + either plaintext or JSON
                     if (Method.PUT.equals(method)) {
-                        return jsonResponse(Response.Status.BAD_REQUEST, new JSONObject().put("error", "bad_sha256"));
+                        return jsonResponse(Response.Status.BAD_REQUEST, new JSONObject().put("error", "bad_id"));
                     }
                     return newFixedLengthResponse(Response.Status.BAD_REQUEST, NanoHTTPD.MIME_PLAINTEXT, "Invalid chunk ID format");
                 }
