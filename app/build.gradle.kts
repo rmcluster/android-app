@@ -78,4 +78,5 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.play.services.code.scanner)
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
 }
