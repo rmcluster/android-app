@@ -26,7 +26,7 @@ import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
     private TextView tvIpAddress;
-    private EditText etPort, etThreads, etHost, etDiscoveryIp, etDiscoveryPort;
+    private EditText etPort, etStoragePort, etThreads, etHost, etDiscoveryIp, etDiscoveryPort;
     private Button btnStart, btnStop, btnScanQr;
     private SettingsRepository settings;
     private static final String TAG = "MainActivity";
@@ -41,6 +41,7 @@ public class MainActivity extends AppCompatActivity {
         tvIpAddress = findViewById(R.id.tvIpAddress);
         etHost = findViewById(R.id.etHost);
         etPort = findViewById(R.id.etPort);
+        etStoragePort = findViewById(R.id.etStoragePort);
         etDiscoveryIp = findViewById(R.id.etDiscoveryIp);
         etDiscoveryPort = findViewById(R.id.etDiscoveryPort);
         etThreads = findViewById(R.id.etThreads);
@@ -60,7 +61,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnStop.setOnClickListener(v -> {
-            stopService(new Intent(this, RpcServerService.class));
+            stopService(new Intent(this, ServerService.class));
             setServerUiState(false);
         });
 
@@ -77,13 +78,16 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        etPort.setText(String.valueOf(settings.loadConfig().port));
+        ServerConfig config = settings.loadConfig();
+        etPort.setText(String.valueOf(config.port));
+        etStoragePort.setText(String.valueOf(config.storagePort));
     }
 
     private void loadSettings() {
         ServerConfig config = settings.loadConfig();
         etHost.setText(config.host);
         etPort.setText(String.valueOf(config.port));
+        etStoragePort.setText(String.valueOf(config.storagePort));
         etDiscoveryIp.setText(config.discoveryIp);
         etDiscoveryPort.setText(String.valueOf(config.discoveryPort));
         etThreads.setText(String.valueOf(config.threads));
@@ -94,6 +98,7 @@ public class MainActivity extends AppCompatActivity {
             ServerConfig config = new ServerConfig(
                     etHost.getText().toString(),
                     Integer.parseInt(etPort.getText().toString()),
+                    Integer.parseInt(etStoragePort.getText().toString()),
                     etDiscoveryIp.getText().toString(),
                     Integer.parseInt(etDiscoveryPort.getText().toString()),
                     Integer.parseInt(etThreads.getText().toString())
@@ -134,7 +139,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startRpcService() {
-        Intent serviceIntent = new Intent(this, RpcServerService.class);
+        Intent serviceIntent = new Intent(this, ServerService.class);
         ContextCompat.startForegroundService(this, serviceIntent);
         setServerUiState(true);
     }

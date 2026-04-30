@@ -11,17 +11,22 @@ import android.os.BatteryManager;
 import android.content.IntentFilter;
 import android.util.Log;
 import android.content.pm.ServiceInfo;
+import android.os.Environment;
+import java.io.File;
 import java.net.URLEncoder;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
-public class RpcServerService extends Service {
-    private static final String LOG_TAG = "RpcServerService";
+import fi.iki.elonen.NanoHTTPD;
+
+public class ServerService extends Service {
+    private static final String LOG_TAG = "ServerService";
     private Thread serverThread;
     private Process rpcProcess;
     private NativeRpcServer nativeServer;
     private Thread discoveryThread;
+    private StorageServer storageServer;
     private volatile boolean isRunning = false;
 
     @Override
@@ -52,16 +57,29 @@ public class RpcServerService extends Service {
         boolean hasDiscoveryIp = !discoveryIp.isEmpty();
 
         int assignedPort = findAvailablePort(requestedPort);
+        int storagePort = findAvailablePort(assignedPort + 1);
+        
         settings.saveConfig(new ServerConfig(
                 host,
                 assignedPort,
+                storagePort,
                 discoveryIp,
                 discoveryPort,
                 threads
         ));
+        storageServer = new StorageServer(storagePort, getFilesystemPath("StorageApp")); 
+        try {
+            //default timeout, 5 seconds
+            storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+            Log.i(LOG_TAG, "Storage server started on port " + storagePort);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Failed to start storage server", e);
+        }
 
-        if (!hasDiscoveryIp) {
-            Log.w(LOG_TAG, "No discoveryIp provided. Discovery ping will not start.");
+        if (hasDiscoveryIp) {
+            startDiscoveryPing(discoveryIp, discoveryPort, assignedPort, storagePort);
+        } else {
+            Log.i(LOG_TAG, "No discovery IP configured, no pings");
         }
 
         String displayHost = host.equals("0.0.0.0") ? getLocalIpAddress() : host;
@@ -81,11 +99,8 @@ public class RpcServerService extends Service {
         serverThread = new Thread(() -> {
             try {
                 Log.i(LOG_TAG, "Starting RPC server process on " + host + ":" + assignedPort);
-                if (hasDiscoveryIp) {
-                    startDiscoveryPing(discoveryIp, discoveryPort, assignedPort);
-                }
-                String cacheDir = getCacheDir().getAbsolutePath();
-                
+
+                String cacheDir = getCacheDir().getAbsolutePath(); 
                 String executablePath = getApplicationInfo().nativeLibraryDir + "/librpc-server.so";
                 ProcessBuilder pb = new ProcessBuilder(
                     executablePath,
@@ -97,14 +112,6 @@ public class RpcServerService extends Service {
                 pb.environment().put("LD_LIBRARY_PATH", getApplicationInfo().nativeLibraryDir);
                 pb.redirectErrorStream(true);
                 rpcProcess = pb.start();
-                
-                try (java.io.BufferedReader reader = new java.io.BufferedReader(
-                        new java.io.InputStreamReader(rpcProcess.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        Log.d("LLAMA_RPC_APP", "STDOUT: " + line);
-                    }
-                }
                 
                 int exitCode = rpcProcess.waitFor();
                 Log.i(LOG_TAG, "RPC server process exited with code " + exitCode);
@@ -119,6 +126,14 @@ public class RpcServerService extends Service {
         serverThread.start();
 
         return START_NOT_STICKY;
+    }
+
+    private File getFilesystemPath(String folderName) {
+        File folder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), folderName);
+        if (!folder.exists()) {
+            folder.mkdirs();
+        }
+        return folder;
     }
 
     private int findAvailablePort(int requestedPort) {
@@ -164,7 +179,7 @@ public class RpcServerService extends Service {
         return "0.0.0.0";
     }
 
-    private void startDiscoveryPing(String targetIp, int targetPort, int servicePort) {
+    private void startDiscoveryPing(String targetIp, int targetPort, int servicePort, int storagePort) {
         isRunning = true;
         discoveryThread = new Thread(() -> {
             try {
@@ -182,7 +197,9 @@ public class RpcServerService extends Service {
                     float temperature = readBatteryTemperatureC();
 
                     String localIp = getLocalIpAddress();
-                    String urlString = "http://" + targetIp + ":" + targetPort + "/announce?port=" + servicePort
+                    String urlString = "http://" + targetIp + ":" + targetPort 
+                            + "/announce?port=" + servicePort
+                            + "&storage_port=" + storagePort
                             + "&ip=" + localIp
                             + "&model=" + URLEncoder.encode(model, "UTF-8")
                             + "&max_size=" + maxSize
@@ -255,6 +272,9 @@ public class RpcServerService extends Service {
         if (rpcProcess != null) {
             rpcProcess.destroy();
         }
+        if (storageServer != null) {
+            storageServer.stop();
+        }
     }
 
     @Nullable
@@ -262,5 +282,4 @@ public class RpcServerService extends Service {
     public IBinder onBind(Intent intent) {
         return null;
     }
-
 }
