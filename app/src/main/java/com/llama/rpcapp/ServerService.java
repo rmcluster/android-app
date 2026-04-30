@@ -54,12 +54,14 @@ public class ServerService extends Service {
         String discoveryIp = baseConfig.discoveryIp;
         int discoveryPort = baseConfig.discoveryPort;
         int threads = baseConfig.threads;
+        String nodeId = baseConfig.nodeId;
         boolean hasDiscoveryIp = !discoveryIp.isEmpty();
 
         int assignedPort = findAvailablePort(requestedPort);
         int storagePort = findAvailablePort(assignedPort + 1);
         
         settings.saveConfig(new ServerConfig(
+                nodeId,
                 host,
                 assignedPort,
                 storagePort,
@@ -77,7 +79,7 @@ public class ServerService extends Service {
         }
 
         if (hasDiscoveryIp) {
-            startDiscoveryPing(discoveryIp, discoveryPort, assignedPort, storagePort);
+            startDiscoveryPing(discoveryIp, discoveryPort, assignedPort, storagePort, nodeId);
         } else {
             Log.i(LOG_TAG, "No discovery IP configured, no pings");
         }
@@ -179,7 +181,7 @@ public class ServerService extends Service {
         return "0.0.0.0";
     }
 
-    private void startDiscoveryPing(String targetIp, int targetPort, int servicePort, int storagePort) {
+    private void startDiscoveryPing(String targetIp, int targetPort, int servicePort, int storagePort, String nodeId) {
         isRunning = true;
         discoveryThread = new Thread(() -> {
             try {
@@ -198,7 +200,8 @@ public class ServerService extends Service {
 
                     String localIp = getLocalIpAddress();
                     String urlString = "http://" + targetIp + ":" + targetPort 
-                            + "/announce?port=" + servicePort
+                            + "/announce?id=" + nodeId
+                            + "&port=" + servicePort
                             + "&storage_port=" + storagePort
                             + "&ip=" + localIp
                             + "&model=" + URLEncoder.encode(model, "UTF-8")

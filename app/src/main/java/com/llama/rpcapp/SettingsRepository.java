@@ -2,6 +2,7 @@ package com.llama.rpcapp;
 
 import android.content.Context;
 import android.content.SharedPreferences; //apply() writes to disk (xml file)
+import java.util.UUID;
 
 public class SettingsRepository {
     private static final String PREF_NAME = "rpc_server_settings";
@@ -11,6 +12,7 @@ public class SettingsRepository {
     private static final String KEY_DISCOVERY_IP = "discovery_ip";
     private static final String KEY_DISCOVERY_PORT = "discovery_port";
     private static final String KEY_STORAGE_PORT = "storage_port";
+    private static final String NODE_ID = "node_id";
 
     private final SharedPreferences prefs;
 
@@ -20,6 +22,7 @@ public class SettingsRepository {
 
     public ServerConfig loadConfig() {
         return new ServerConfig(
+                prefs.getString(NODE_ID, UUID.randomUUID().toString()),
                 prefs.getString(KEY_HOST, "0.0.0.0"),
                 prefs.getInt(KEY_PORT, 47671),
                 prefs.getInt(KEY_STORAGE_PORT, 47672),
@@ -31,6 +34,7 @@ public class SettingsRepository {
 
     public void saveConfig(ServerConfig config) {
         prefs.edit()
+                .putString(NODE_ID, config.nodeId)
                 .putString(KEY_HOST, config.host)
                 .putInt(KEY_PORT, config.port)
                 .putInt(KEY_STORAGE_PORT, config.storagePort)
