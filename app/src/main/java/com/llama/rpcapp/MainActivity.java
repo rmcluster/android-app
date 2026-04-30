@@ -95,7 +95,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void saveSettings() {
         try {
+            ServerConfig oldConfig = settings.loadConfig();
             ServerConfig config = new ServerConfig(
+                    oldConfig.nodeId,
                     etHost.getText().toString(),
                     Integer.parseInt(etPort.getText().toString()),
                     Integer.parseInt(etStoragePort.getText().toString()),

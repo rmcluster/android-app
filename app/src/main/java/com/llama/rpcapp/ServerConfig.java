@@ -7,8 +7,10 @@ public final class ServerConfig {
     public final String discoveryIp;
     public final int discoveryPort;
     public final int threads;
+    public final String nodeId;
 
-    public ServerConfig(String host, int port, int storagePort, String discoveryIp, int discoveryPort, int threads) {
+    public ServerConfig(String nodeId, String host, int port, int storagePort, String discoveryIp, int discoveryPort, int threads) {
+        this.nodeId = nodeId;
         this.host = normalize(host);
         this.port = port;
         this.storagePort = storagePort;
