@@ -10,6 +10,7 @@ public class SettingsRepository {
     private static final String KEY_THREADS = "threads";
     private static final String KEY_DISCOVERY_IP = "discovery_ip";
     private static final String KEY_DISCOVERY_PORT = "discovery_port";
+    private static final String KEY_STORAGE_PORT = "storage_port";
 
     private final SharedPreferences prefs;
 
@@ -21,6 +22,7 @@ public class SettingsRepository {
         return new ServerConfig(
                 prefs.getString(KEY_HOST, "0.0.0.0"),
                 prefs.getInt(KEY_PORT, 47671),
+                prefs.getInt(KEY_STORAGE_PORT, 47672),
                 prefs.getString(KEY_DISCOVERY_IP, ""),
                 prefs.getInt(KEY_DISCOVERY_PORT, 4917),
                 prefs.getInt(KEY_THREADS, 4)
@@ -31,6 +33,7 @@ public class SettingsRepository {
         prefs.edit()
                 .putString(KEY_HOST, config.host)
                 .putInt(KEY_PORT, config.port)
+                .putInt(KEY_STORAGE_PORT, config.storagePort)
                 .putString(KEY_DISCOVERY_IP, config.discoveryIp)
                 .putInt(KEY_DISCOVERY_PORT, config.discoveryPort)
                 .putInt(KEY_THREADS, config.threads)
