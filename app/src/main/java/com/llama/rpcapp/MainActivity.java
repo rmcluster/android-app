@@ -128,7 +128,7 @@ public class MainActivity extends AppCompatActivity {
             String token = uri.getQueryParameter("token");
             if (url != null) etDiscoveryIp.setText(url);
             if (port != null) etDiscoveryPort.setText(port);
-            if (token != null) discoveryToken = token;
+            discoveryToken = token != null ? token : "";
 
             Toast.makeText(this, "Connected to: " + url + ":" + port, Toast.LENGTH_SHORT).show();
             saveSettings();
