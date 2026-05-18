@@ -13,6 +13,7 @@ import android.util.Log;
 import android.content.pm.ServiceInfo;
 import android.os.Environment;
 import java.io.File;
+import java.io.IOException;
 import java.net.URLEncoder;
 
 import androidx.annotation.Nullable;
@@ -69,7 +70,8 @@ public class ServerService extends Service {
                 discoveryPort,
                 threads
         ));
-        storageServer = new StorageServer(storagePort, getFilesystemPath("StorageApp")); 
+        File storageDir = getStorageDirectory("StorageApp");
+        storageServer = new StorageServer(storagePort, storageDir);
         try {
             //default timeout, 5 seconds
             storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
@@ -130,10 +132,18 @@ public class ServerService extends Service {
         return START_NOT_STICKY;
     }
 
-    private File getFilesystemPath(String folderName) {
-        File folder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), folderName);
-        if (!folder.exists()) {
-            folder.mkdirs();
+    private File getStorageDirectory(String folderName) {
+        File base = getExternalFilesDir(null);
+        if (base == null) {
+            base = getFilesDir();
+        }
+
+        File folder = new File(base, folderName);
+        if (!folder.exists() && !folder.mkdirs()) {
+            folder = new File(getFilesDir(), folderName);
+            if (!folder.exists() && !folder.mkdirs()) {
+                Log.e(LOG_TAG, "Failed to create storage directory at " + folder.getAbsolutePath());
+            }
         }
         return folder;
     }
