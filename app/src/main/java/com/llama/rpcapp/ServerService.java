@@ -72,7 +72,7 @@ public class ServerService extends Service {
         try {
             storageDir = getStorageDirectory("StorageApp");
         } catch (IllegalStateException e) {
-            Log.e(LOG_TAG, "Storage server unavailable: no writable storage directory", e);
+            Log.e(LOG_TAG, "Failed to initialize storage directory", e);
             stopSelf();
             return START_NOT_STICKY;
         }
