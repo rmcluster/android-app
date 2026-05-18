@@ -11,9 +11,7 @@ import android.os.BatteryManager;
 import android.content.IntentFilter;
 import android.util.Log;
 import android.content.pm.ServiceInfo;
-import android.os.Environment;
 import java.io.File;
-import java.io.IOException;
 import java.net.URLEncoder;
 
 import androidx.annotation.Nullable;
