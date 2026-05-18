@@ -119,7 +119,7 @@ public class MainActivity extends AppCompatActivity {
     private void parseUri(Uri uri) {
         Log.d(TAG, "Parsing URI: " + uri.toString());
         if (!"rmcluster".equals(uri.getScheme()) || !"connect".equals(uri.getHost())) {
-            Toast.makeText(this, "QR code is not an cluster connection code", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "QR code is not a cluster connection code", Toast.LENGTH_LONG).show();
             return;
         }
         try {
