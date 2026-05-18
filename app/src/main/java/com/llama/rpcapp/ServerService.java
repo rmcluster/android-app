@@ -77,16 +77,18 @@ public class ServerService extends Service {
             return START_NOT_STICKY;
         }
         storageServer = new StorageServer(storagePort, storageDir);
+        boolean advertiseStorage = false;
         try {
             //default timeout, 5 seconds
             storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+            advertiseStorage = true;
             Log.i(LOG_TAG, "Storage server started on port " + storagePort);
         } catch (Exception e) {
             Log.e(LOG_TAG, "Failed to start storage server", e);
         }
 
         if (hasDiscoveryIp) {
-            startDiscoveryPing(discoveryIp, discoveryPort, assignedPort, storagePort, nodeId);
+            startDiscoveryPing(discoveryIp, discoveryPort, assignedPort, advertiseStorage ? storagePort : 0, nodeId);
         } else {
             Log.i(LOG_TAG, "No discovery IP configured, no pings");
         }
@@ -223,12 +225,14 @@ public class ServerService extends Service {
                     String urlString = "http://" + targetIp + ":" + targetPort 
                             + "/announce?id=" + nodeId
                             + "&port=" + servicePort
-                            + "&storage_port=" + storagePort
                             + "&ip=" + localIp
                             + "&model=" + URLEncoder.encode(model, "UTF-8")
                             + "&max_size=" + maxSize
                             + "&battery=" + battery
                             + "&temperature=" + temperature;
+                    if (storagePort > 0) {
+                        urlString += "&storage_port=" + storagePort;
+                    }
 
                     java.net.URL url = new java.net.URL(urlString);
                     java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
