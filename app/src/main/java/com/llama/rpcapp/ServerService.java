@@ -11,7 +11,6 @@ import android.os.BatteryManager;
 import android.content.IntentFilter;
 import android.util.Log;
 import android.content.pm.ServiceInfo;
-import android.os.Environment;
 import java.io.File;
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -54,6 +53,7 @@ public class ServerService extends Service {
         int requestedPort = baseConfig.port;
         String discoveryIp = baseConfig.discoveryIp;
         int discoveryPort = baseConfig.discoveryPort;
+        String discoveryToken = baseConfig.discoveryToken;
         int threads = baseConfig.threads;
         String nodeId = baseConfig.nodeId;
         boolean hasDiscoveryIp = !discoveryIp.isEmpty();
@@ -68,6 +68,7 @@ public class ServerService extends Service {
                 storagePort,
                 discoveryIp,
                 discoveryPort,
+                discoveryToken,
                 threads
         ));
         File storageDir = getStorageDirectory("StorageApp");
@@ -81,7 +82,7 @@ public class ServerService extends Service {
         }
 
         if (hasDiscoveryIp) {
-            startDiscoveryPing(discoveryIp, discoveryPort, assignedPort, storagePort, nodeId);
+            startDiscoveryPing(discoveryIp, discoveryPort, discoveryToken, assignedPort, storagePort, nodeId);
         } else {
             Log.i(LOG_TAG, "No discovery IP configured, no pings");
         }
@@ -191,7 +192,7 @@ public class ServerService extends Service {
         return "0.0.0.0";
     }
 
-    private void startDiscoveryPing(String targetIp, int targetPort, int servicePort, int storagePort, String nodeId) {
+    private void startDiscoveryPing(String targetIp, int targetPort, String discoveryToken, int servicePort, int storagePort, String nodeId) {
         isRunning = true;
         discoveryThread = new Thread(() -> {
             try {
@@ -218,6 +219,9 @@ public class ServerService extends Service {
                             + "&max_size=" + maxSize
                             + "&battery=" + battery
                             + "&temperature=" + temperature;
+                    if (!discoveryToken.isEmpty()) {
+                        urlString += "&token=" + URLEncoder.encode(discoveryToken, "UTF-8");
+                    }
 
                     java.net.URL url = new java.net.URL(urlString);
                     java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();

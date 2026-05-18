@@ -29,6 +29,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText etPort, etStoragePort, etThreads, etHost, etDiscoveryIp, etDiscoveryPort;
     private Button btnStart, btnStop, btnScanQr;
     private SettingsRepository settings;
+    private String discoveryToken = "";
     private static final String TAG = "MainActivity";
 
     @Override
@@ -90,6 +91,7 @@ public class MainActivity extends AppCompatActivity {
         etStoragePort.setText(String.valueOf(config.storagePort));
         etDiscoveryIp.setText(config.discoveryIp);
         etDiscoveryPort.setText(String.valueOf(config.discoveryPort));
+        discoveryToken = config.discoveryToken;
         etThreads.setText(String.valueOf(config.threads));
     }
 
@@ -103,6 +105,7 @@ public class MainActivity extends AppCompatActivity {
                     Integer.parseInt(etStoragePort.getText().toString()),
                     etDiscoveryIp.getText().toString(),
                     Integer.parseInt(etDiscoveryPort.getText().toString()),
+                    discoveryToken,
                     Integer.parseInt(etThreads.getText().toString())
             );
             settings.saveConfig(config);
@@ -115,15 +118,22 @@ public class MainActivity extends AppCompatActivity {
 
     private void parseUri(Uri uri) {
         Log.d(TAG, "Parsing URI: " + uri.toString());
-        if ("rmcluster".equals(uri.getScheme()) && "connect".equals(uri.getHost())) {
+        if (!"rmcluster".equals(uri.getScheme()) || !"connect".equals(uri.getHost())) {
+            Toast.makeText(this, "QR code is not an cluster connection code", Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
             String url = uri.getQueryParameter("url");
             String port = uri.getQueryParameter("port");
+            String token = uri.getQueryParameter("token");
             if (url != null) etDiscoveryIp.setText(url);
             if (port != null) etDiscoveryPort.setText(port);
-            
-            Toast.makeText(this, "Connected to: " + url + ":" + port, Toast.LENGTH_SHORT).show();
+            if (token != null) discoveryToken = token;
 
-            //can also parse token if we end up using it
+            Toast.makeText(this, "Connected to: " + url + ":" + port, Toast.LENGTH_SHORT).show();
+            saveSettings();
+        } catch (Exception e) {
+            Toast.makeText(this, "Scanned QR code is invalid", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -136,7 +146,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                 })
                 .addOnFailureListener(e -> {
-                    Toast.makeText(this, "Scan failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Log.w(TAG, "Play Services scanner unavailable", e);
+                    Toast.makeText(this, "Scanner not available, manually enter connection details", Toast.LENGTH_LONG).show();
                 });
     }
 
