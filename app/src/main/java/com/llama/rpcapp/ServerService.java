@@ -68,7 +68,14 @@ public class ServerService extends Service {
                 discoveryPort,
                 threads
         ));
-        File storageDir = getStorageDirectory("StorageApp");
+        File storageDir;
+        try {
+            storageDir = getStorageDirectory("StorageApp");
+        } catch (IllegalStateException e) {
+            Log.e(LOG_TAG, "Storage server unavailable: no writable storage directory", e);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         storageServer = new StorageServer(storagePort, storageDir);
         try {
             //default timeout, 5 seconds
