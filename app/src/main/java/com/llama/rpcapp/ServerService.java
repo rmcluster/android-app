@@ -132,18 +132,24 @@ public class ServerService extends Service {
 
     private File getStorageDirectory(String folderName) {
         File base = getExternalFilesDir(null);
-        if (base == null) {
-            base = getFilesDir();
+        File fallbackBase = getFilesDir();
+
+        if (base != null) {
+            File folder = new File(base, folderName);
+            if ((folder.exists() || folder.mkdirs()) && folder.isDirectory()) {
+                return folder;
+            }
+            Log.e(LOG_TAG, "Failed to create storage directory at " + folder.getAbsolutePath() + ", falling back to internal storage");
         }
 
-        File folder = new File(base, folderName);
-        if (!folder.exists() && !folder.mkdirs()) {
-            folder = new File(getFilesDir(), folderName);
-            if (!folder.exists() && !folder.mkdirs()) {
-                Log.e(LOG_TAG, "Failed to create storage directory at " + folder.getAbsolutePath());
-            }
+        File fallbackFolder = new File(fallbackBase, folderName);
+        if ((fallbackFolder.exists() || fallbackFolder.mkdirs()) && fallbackFolder.isDirectory()) {
+            return fallbackFolder;
         }
-        return folder;
+
+        throw new IllegalStateException(
+                "Failed to create storage directory at " + fallbackFolder.getAbsolutePath()
+        );
     }
 
     private int findAvailablePort(int requestedPort) {
