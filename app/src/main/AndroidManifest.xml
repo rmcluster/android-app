@@ -12,7 +12,7 @@
     <application
         android:allowBackup="true"
         android:extractNativeLibs="true"
-        android:label="Llama RPC"
+        android:label="RMCluster Node"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.AppCompat.Light.DarkActionBar">

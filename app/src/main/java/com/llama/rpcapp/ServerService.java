@@ -98,7 +98,7 @@ public class ServerService extends Service {
         String displayHost = host.equals("0.0.0.0") ? getLocalIpAddress() : host;
 
         Notification notification = new NotificationCompat.Builder(this, "RpcServerChannel")
-                .setContentTitle("Llama RPC Server")
+                .setContentTitle("RMCluster Node")
                 .setContentText("Running on " + displayHost + ":" + assignedPort)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build();

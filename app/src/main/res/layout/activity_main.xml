@@ -1,98 +1,104 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp"
-    android:gravity="center_horizontal">
-
-    <TextView
-        android:id="@+id/tvTitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Llama RPC Server"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
-
-    <Button
-        android:id="@+id/btnScanQr"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Scan QR Code"
-        android:layout_marginBottom="16dp" />
-
-    <TextView
-        android:id="@+id/tvIpAddress"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="IP Address: Loading..."
-        android:textSize="18sp"
-        android:layout_marginBottom="16dp" />
-
-    <EditText
-        android:id="@+id/etHost"
+    android:fillViewport="true">
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Host IP"
-        android:inputType="textUri"
-        android:text="0.0.0.0"
-        android:layout_marginBottom="8dp" />
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:gravity="center_horizontal">
+        <!-- <TextView
+            android:id="@+id/tvTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Llama RPC Server"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" /> -->
 
-    <EditText
-        android:id="@+id/etPort"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Port [Preferred: 47671]"
-        android:inputType="number"
-        android:text=""
-        android:layout_marginBottom="8dp" />
+        <Button
+            android:id="@+id/btnScanQr"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Scan QR Code"
+            android:layout_marginBottom="16dp" />
 
-    <EditText
-        android:id="@+id/etStoragePort"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Storage Port [Preferred: 47672]"
-        android:inputType="number"
-        android:layout_marginBottom="8dp" />
+        <TextView
+            android:id="@+id/tvIpAddress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="IP Address: Loading..."
+            android:textSize="18sp"
+            android:layout_marginBottom="16dp" />
 
-    <EditText
-        android:id="@+id/etDiscoveryIp"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Discovery IP"
-        android:inputType="textUri"
-        android:text=""
-        android:layout_marginBottom="8dp" />
+        <EditText
+            android:id="@+id/etHost"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Host IP"
+            android:inputType="textUri"
+            android:text="0.0.0.0"
+            android:layout_marginBottom="8dp" />
 
-    <EditText
-        android:id="@+id/etDiscoveryPort"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Discovery Port (default 4917)"
-        android:inputType="number"
-        android:layout_marginBottom="8dp" />
+        <EditText
+            android:id="@+id/etPort"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Port [Preferred: 47671]"
+            android:inputType="number"
+            android:text=""
+            android:layout_marginBottom="8dp" />
 
-    <EditText
-        android:id="@+id/etThreads"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Threads (default 4)"
-        android:inputType="number"
-        android:layout_marginBottom="24dp" />
+        <EditText
+            android:id="@+id/etStoragePort"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Storage Port [Preferred: 47672]"
+            android:inputType="number"
+            android:layout_marginBottom="8dp" />
 
-    <Button
-        android:id="@+id/btnStart"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="START SERVER" />
+        <EditText
+            android:id="@+id/etDiscoveryIp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Discovery IP"
+            android:inputType="textUri"
+            android:text=""
+            android:layout_marginBottom="8dp" />
 
-    <Button
-        android:id="@+id/btnStop"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="STOP (Process Restart)"
-        android:visibility="gone"
-        android:backgroundTint="#FF5252" />
+        <EditText
+            android:id="@+id/etDiscoveryPort"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Discovery Port (default 4917)"
+            android:inputType="number"
+            android:layout_marginBottom="8dp" />
 
-</LinearLayout>
+        <EditText
+            android:id="@+id/etThreads"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Threads (default 4)"
+            android:inputType="number"
+            android:layout_marginBottom="24dp" />
+
+        <Button
+            android:id="@+id/btnStart"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="START SERVER" />
+
+        <Button
+            android:id="@+id/btnStop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="STOP (Process Restart)"
+            android:visibility="gone"
+            android:backgroundTint="#FF5252" />
+
+    </LinearLayout>
+</ScrollView>
+
