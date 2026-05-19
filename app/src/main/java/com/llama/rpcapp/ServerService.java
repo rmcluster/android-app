@@ -52,6 +52,7 @@ public class ServerService extends Service {
         int requestedPort = baseConfig.port;
         String discoveryIp = baseConfig.discoveryIp;
         int discoveryPort = baseConfig.discoveryPort;
+        String discoveryToken = baseConfig.discoveryToken;
         int threads = baseConfig.threads;
         String nodeId = baseConfig.nodeId;
         boolean hasDiscoveryIp = !discoveryIp.isEmpty();
@@ -66,6 +67,7 @@ public class ServerService extends Service {
                 storagePort,
                 discoveryIp,
                 discoveryPort,
+                discoveryToken,
                 threads
         ));
         File storageDir;
@@ -204,7 +206,7 @@ public class ServerService extends Service {
         return "0.0.0.0";
     }
 
-    private void startDiscoveryPing(String targetIp, int targetPort, int servicePort, int storagePort, String nodeId) {
+    private void startDiscoveryPing(String targetIp, int targetPort, String discoveryToken, int servicePort, int storagePort, String nodeId) {
         isRunning = true;
         discoveryThread = new Thread(() -> {
             try {
@@ -230,8 +232,8 @@ public class ServerService extends Service {
                             + "&max_size=" + maxSize
                             + "&battery=" + battery
                             + "&temperature=" + temperature;
-                    if (storagePort > 0) {
-                        urlString += "&storage_port=" + storagePort;
+                    if (!discoveryToken.isEmpty()) {
+                        urlString += "&token=" + URLEncoder.encode(discoveryToken, "UTF-8");
                     }
 
                     java.net.URL url = new java.net.URL(urlString);
