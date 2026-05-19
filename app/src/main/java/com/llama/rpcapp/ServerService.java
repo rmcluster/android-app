@@ -11,7 +11,6 @@ import android.os.BatteryManager;
 import android.content.IntentFilter;
 import android.util.Log;
 import android.content.pm.ServiceInfo;
-import android.os.Environment;
 import java.io.File;
 import java.net.URLEncoder;
 
@@ -69,17 +68,27 @@ public class ServerService extends Service {
                 discoveryPort,
                 threads
         ));
-        storageServer = new StorageServer(storagePort, getFilesystemPath("StorageApp")); 
+        File storageDir;
+        try {
+            storageDir = getStorageDirectory("StorageApp");
+        } catch (IllegalStateException e) {
+            Log.e(LOG_TAG, "Failed to initialize storage directory", e);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        storageServer = new StorageServer(storagePort, storageDir);
+        boolean advertiseStorage = false;
         try {
             //default timeout, 5 seconds
             storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+            advertiseStorage = true;
             Log.i(LOG_TAG, "Storage server started on port " + storagePort);
         } catch (Exception e) {
             Log.e(LOG_TAG, "Failed to start storage server", e);
         }
 
         if (hasDiscoveryIp) {
-            startDiscoveryPing(discoveryIp, discoveryPort, assignedPort, storagePort, nodeId);
+            startDiscoveryPing(discoveryIp, discoveryPort, assignedPort, advertiseStorage ? storagePort : 0, nodeId);
         } else {
             Log.i(LOG_TAG, "No discovery IP configured, no pings");
         }
@@ -130,12 +139,26 @@ public class ServerService extends Service {
         return START_NOT_STICKY;
     }
 
-    private File getFilesystemPath(String folderName) {
-        File folder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), folderName);
-        if (!folder.exists()) {
-            folder.mkdirs();
+    private File getStorageDirectory(String folderName) {
+        File base = getExternalFilesDir(null);
+        File fallbackBase = getFilesDir();
+
+        if (base != null) {
+            File folder = new File(base, folderName);
+            if ((folder.exists() || folder.mkdirs()) && folder.isDirectory()) {
+                return folder;
+            }
+            Log.e(LOG_TAG, "Failed to create storage directory at " + folder.getAbsolutePath() + ", falling back to internal storage");
         }
-        return folder;
+
+        File fallbackFolder = new File(fallbackBase, folderName);
+        if ((fallbackFolder.exists() || fallbackFolder.mkdirs()) && fallbackFolder.isDirectory()) {
+            return fallbackFolder;
+        }
+
+        throw new IllegalStateException(
+                "Failed to create storage directory at " + fallbackFolder.getAbsolutePath()
+        );
     }
 
     private int findAvailablePort(int requestedPort) {
@@ -202,12 +225,14 @@ public class ServerService extends Service {
                     String urlString = "http://" + targetIp + ":" + targetPort 
                             + "/announce?id=" + nodeId
                             + "&port=" + servicePort
-                            + "&storage_port=" + storagePort
                             + "&ip=" + localIp
                             + "&model=" + URLEncoder.encode(model, "UTF-8")
                             + "&max_size=" + maxSize
                             + "&battery=" + battery
                             + "&temperature=" + temperature;
+                    if (storagePort > 0) {
+                        urlString += "&storage_port=" + storagePort;
+                    }
 
                     java.net.URL url = new java.net.URL(urlString);
                     java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
