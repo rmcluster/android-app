@@ -55,7 +55,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   - Stops the child process when the user taps **Stop Server**.
 
 - `app/src/main/java/com/llama/rpcapp/NativeRpcServer.java`
-  - JNI wrapper exposing `getMaxSize()` used by discovery announces.
+  - JNI wrapper exposing `getMaxSize()` for native backend capacity probes; discovery now uses Android runtime memory estimates.
 
 ### C++/Native components
 
@@ -79,5 +79,5 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 5. Service launches `librpc-server.so` via `ProcessBuilder`.
 6. Native `rpc-server-main.cpp` initializes GGML backend and enters RPC serve loop.
 7. Discovery thread sends periodic tracker announces including:
-   - host/IP, service port, device model, max backend size, battery, temperature.
+   - host/IP, service port, device model, estimated usable RAM, battery, temperature.
 8. On stop/destroy, service interrupts discovery loop and destroys child process.

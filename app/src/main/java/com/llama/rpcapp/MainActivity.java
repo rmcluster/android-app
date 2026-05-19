@@ -6,6 +6,8 @@ import android.net.Uri;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.format.Formatter;
 import android.util.Log;
 import android.view.View;
@@ -17,20 +19,26 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
+import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
-import com.google.mlkit.vision.barcode.common.Barcode;
-
-import java.util.Locale;
+import com.google.zxing.integration.android.IntentIntegrator;
+import com.google.zxing.integration.android.IntentResult;
 
 public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "MainActivity";
+    private static final long SCAN_TIMEOUT_MS = 45_000L;
+
+    private final Handler scanTimeoutHandler = new Handler(Looper.getMainLooper());
+
     private TextView tvIpAddress;
     private EditText etPort, etStoragePort, etThreads, etHost, etDiscoveryIp, etDiscoveryPort;
     private Button btnStart, btnStop, btnScanQr;
     private SettingsRepository settings;
     private String discoveryToken = "";
-    private static final String TAG = "MainActivity";
+    private Runnable scanTimeoutRunnable;
+    private boolean scanInProgress = false;
+    private boolean scanTimedOut = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,7 +58,6 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btnStop);
         btnScanQr = findViewById(R.id.btnScanQr);
 
-        // Load saved settings
         loadSettings();
 
         String ip = getWifiIpAddress();
@@ -66,10 +73,7 @@ public class MainActivity extends AppCompatActivity {
             setServerUiState(false);
         });
 
-        btnScanQr.setOnClickListener(v -> {
-            startQrScanner();
-        });
-
+        btnScanQr.setOnClickListener(v -> startQrScanner());
 
         if (getIntent().getBooleanExtra("autoStart", false)) {
             startRpcService();
@@ -82,6 +86,30 @@ public class MainActivity extends AppCompatActivity {
         ServerConfig config = settings.loadConfig();
         etPort.setText(String.valueOf(config.port));
         etStoragePort.setText(String.valueOf(config.storagePort));
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        IntentResult result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
+        if (result != null) {
+            clearScanTimeout();
+            if (scanTimedOut) {
+                scanTimedOut = false;
+                Toast.makeText(this, "Scan failed", Toast.LENGTH_LONG).show();
+            } else if (result.getContents() == null) {
+                Toast.makeText(this, "Scan failed", Toast.LENGTH_LONG).show();
+            } else {
+                parseUri(Uri.parse(result.getContents()));
+            }
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    @Override
+    protected void onDestroy() {
+        clearScanTimeout();
+        super.onDestroy();
     }
 
     private void loadSettings() {
@@ -110,14 +138,12 @@ public class MainActivity extends AppCompatActivity {
             );
             settings.saveConfig(config);
         } catch (NumberFormatException e) {
-            Log.e("MainActivity", "Failed to save settings: invalid number format", e);
+            Log.e(TAG, "Failed to save settings: invalid number format", e);
         }
     }
 
-
-
     private void parseUri(Uri uri) {
-        Log.d(TAG, "Parsing URI: " + uri.toString());
+        Log.d(TAG, "Parsing URI: " + uri);
         if (!"rmcluster".equals(uri.getScheme()) || !"connect".equals(uri.getHost())) {
             Toast.makeText(this, "QR code is not a cluster connection code", Toast.LENGTH_LONG).show();
             return;
@@ -138,18 +164,74 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startQrScanner() {
-        GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).enableAutoZoom().build();
+        clearScanTimeout();
+        scanTimedOut = false;
 
-        GmsBarcodeScanning.getClient(this, options).startScan().addOnSuccessListener(barcode -> {
+        GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .enableAutoZoom()
+                .build();
+
+        GmsBarcodeScanning.getClient(this, options)
+                .startScan()
+                .addOnSuccessListener(barcode -> {
+                    if (scanTimedOut) {
+                        return;
+                    }
+
+                    clearScanTimeout();
                     if (barcode.getRawValue() != null) {
                         parseUri(Uri.parse(barcode.getRawValue()));
                     }
                 })
+                .addOnCanceledListener(this::clearScanTimeout)
                 .addOnFailureListener(e -> {
-                    Log.w(TAG, "Play Services scanner unavailable", e);
-                    Toast.makeText(this, "Scanner not available, manually enter connection details", Toast.LENGTH_LONG).show();
+                    if (scanTimedOut) {
+                        return;
+                    }
+
+                    Log.w(TAG, "Play Services scanner unavailable, falling back to ZXing", e);
+                    Toast.makeText(this, "Play Services scanner unavailable, using fallback scanner", Toast.LENGTH_LONG).show();
+                    startZxingScanner();
                 });
     }
+
+    private void startZxingScanner() {
+        beginScanTimeout();
+        Toast.makeText(this, "Using fallback scanner", Toast.LENGTH_SHORT).show();
+        IntentIntegrator integrator = new IntentIntegrator(this);
+        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
+        integrator.setPrompt("Scan a cluster QR code");
+        integrator.setCameraId(0);
+        integrator.setBeepEnabled(true);
+        integrator.setBarcodeImageEnabled(false);
+        integrator.initiateScan();
+    }
+
+    private void beginScanTimeout() {
+        clearScanTimeout();
+        scanInProgress = true;
+        scanTimedOut = false;
+        scanTimeoutRunnable = () -> {
+            if (!scanInProgress) {
+                return;
+            }
+
+            scanTimedOut = true;
+            scanInProgress = false;
+            finishActivity(IntentIntegrator.REQUEST_CODE);
+        };
+        scanTimeoutHandler.postDelayed(scanTimeoutRunnable, SCAN_TIMEOUT_MS);
+    }
+
+    private void clearScanTimeout() {
+        scanInProgress = false;
+        if (scanTimeoutRunnable != null) {
+            scanTimeoutHandler.removeCallbacks(scanTimeoutRunnable);
+            scanTimeoutRunnable = null;
+        }
+    }
+
 
     private void startRpcService() {
         Intent serviceIntent = new Intent(this, ServerService.class);

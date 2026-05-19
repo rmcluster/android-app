@@ -4,6 +4,8 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.app.ActivityManager;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
@@ -23,7 +25,6 @@ public class ServerService extends Service {
     private static final String LOG_TAG = "ServerService";
     private Thread serverThread;
     private Process rpcProcess;
-    private NativeRpcServer nativeServer;
     private Thread discoveryThread;
     private StorageServer storageServer;
     private volatile boolean isRunning = false;
@@ -31,7 +32,6 @@ public class ServerService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        nativeServer = new NativeRpcServer();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel serviceChannel = new NotificationChannel(
                     "RpcServerChannel",
@@ -219,7 +219,7 @@ public class ServerService extends Service {
             while (isRunning) {
                 try {
                     String model = Build.MODEL;
-                    long maxSize = nativeServer != null ? nativeServer.getMaxSize() : 0;
+                    long maxSize = estimateUsableMemoryBytes();
                     float battery = readBatteryPercent();
                     float temperature = readBatteryTemperatureC();
 
@@ -274,6 +274,27 @@ public class ServerService extends Service {
             }
         });
         discoveryThread.start();
+    }
+
+    private long estimateUsableMemoryBytes() {
+        ActivityManager activityManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (activityManager == null) {
+            Log.w(LOG_TAG, "ActivityManager unavailable; advertising unknown memory capacity");
+            return 0;
+        }
+
+        ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
+        activityManager.getMemoryInfo(memoryInfo);
+
+        long advertisedBytes = Math.max(0L, memoryInfo.availMem);
+
+        Log.d(LOG_TAG, "Discovery memory estimate: totalMem=" + memoryInfo.totalMem
+                + " availMem=" + memoryInfo.availMem
+                + " threshold=" + memoryInfo.threshold
+                + " lowMemory=" + memoryInfo.lowMemory
+                + " advertised=" + advertisedBytes);
+
+        return advertisedBytes;
     }
 
     private float readBatteryPercent() {
