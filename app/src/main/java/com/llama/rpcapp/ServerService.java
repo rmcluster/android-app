@@ -90,7 +90,7 @@ public class ServerService extends Service {
         }
 
         if (hasDiscoveryIp) {
-            startDiscoveryPing(discoveryIp, discoveryPort, assignedPort, advertiseStorage ? storagePort : 0, nodeId);
+            startDiscoveryPing(discoveryIp, discoveryPort, discoveryToken, assignedPort, advertiseStorage ? storagePort : 0, nodeId);
         } else {
             Log.i(LOG_TAG, "No discovery IP configured, no pings");
         }
@@ -224,9 +224,10 @@ public class ServerService extends Service {
                     float temperature = readBatteryTemperatureC();
 
                     String localIp = getLocalIpAddress();
-                    String urlString = "http://" + targetIp + ":" + targetPort 
+                    String urlString = "http://" + targetIp + ":" + targetPort
                             + "/announce?id=" + nodeId
                             + "&port=" + servicePort
+                            + "&storage_port=" + storagePort
                             + "&ip=" + localIp
                             + "&model=" + URLEncoder.encode(model, "UTF-8")
                             + "&max_size=" + maxSize

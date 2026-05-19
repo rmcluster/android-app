@@ -121,20 +121,23 @@ public class StorageServer extends NanoHTTPD {
         }
 
         Map<String, String> files = new HashMap<>();
-        session.parseBody(files);
-
-        String tempFilePath = files.get("content");
         File tempFile;
-        if (tempFilePath != null) {
-            tempFile = new File(tempFilePath);
-        } else {
-            String postData = files.get("postData");
-            if (postData == null) {
-                return jsonResponse(Response.Status.BAD_REQUEST, new JSONObject().put("error", "missing_content"));
-            }
+        if (contentLength == 0) {
             tempFile = File.createTempFile("chunk", ".tmp", storageDir);
-            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
-                fos.write(postData.getBytes("ISO-8859-1"));
+        } else {
+            session.parseBody(files);
+            String tempFilePath = files.get("content");
+            if (tempFilePath != null) {
+                tempFile = new File(tempFilePath);
+            } else {
+                String postData = files.get("postData");
+                if (postData == null) {
+                    return jsonResponse(Response.Status.BAD_REQUEST, new JSONObject().put("error", "missing_content"));
+                }
+                tempFile = File.createTempFile("chunk", ".tmp", storageDir);
+                try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+                    fos.write(postData.getBytes("ISO-8859-1"));
+                }
             }
         }
         String actualHash = computeSHA256(tempFile);
