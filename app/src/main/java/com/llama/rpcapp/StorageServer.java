@@ -1,6 +1,5 @@
 package com.llama.rpcapp;
 
-import android.util.Log;
 import fi.iki.elonen.NanoHTTPD;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -16,6 +15,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+
+import timber.log.Timber;
 
 public class StorageServer extends NanoHTTPD {
     private static final String TAG = "StorageServer";
@@ -56,10 +57,12 @@ public class StorageServer extends NanoHTTPD {
     public Response serve(IHTTPSession session) {
         String uri = session.getUri();
         Method method = session.getMethod();
-        Log.d(TAG, "Request: " + method + " " + uri);
+        Timber.tag(TAG).d("Request: %s %s", method, uri);
 
         try {
-            if (uri.startsWith("/chunk/")) {
+            if ("/logs".equals(uri) && Method.GET.equals(method)) {
+                return handleLogs();
+            } else if (uri.startsWith("/chunk/")) {
                 String chunkId = uri.substring("/chunk/".length());
 
                 //check validity of chunkId as SHA256 hash string
@@ -85,7 +88,7 @@ public class StorageServer extends NanoHTTPD {
                 return handleStorageInfo();
             }
         } catch (Exception e) {
-            Log.e(TAG, "Unhandled exception", e);
+            Timber.tag(TAG).e(e, "Unhandled exception");
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, e.getMessage());
         }
         return newFixedLengthResponse(Response.Status.NOT_FOUND, NanoHTTPD.MIME_PLAINTEXT, "Not Found");
@@ -98,14 +101,17 @@ public class StorageServer extends NanoHTTPD {
     private Response handleGetChunk(String chunkId) throws Exception {
         File file = new File(storageDir, chunkId);
         if (!file.exists() || !file.isFile()) {
+            Timber.tag(TAG).w("Chunk %s not found under %s", chunkId, storageDir.getAbsolutePath());
             return jsonResponse(Response.Status.NOT_FOUND, new JSONObject().put("error", "not_found"));
         }
 
         String actualHash = computeSHA256(file);
         if (!actualHash.equalsIgnoreCase(chunkId)) {
+            Timber.tag(TAG).e("Chunk %s is corrupted: expected hash %s but computed %s", file.getAbsolutePath(), chunkId, actualHash);
             return jsonResponse(Response.Status.NOT_FOUND, new JSONObject().put("error", "corrupted_chunk"));
         }
 
+        Timber.tag(TAG).i("Serving %s chunk from %s (%s)", humanBytes(file.length()), file.getAbsolutePath(), chunkId);
         return newChunkedResponse(Response.Status.OK, "application/octet-stream", new FileInputStream(file));
     }
 
@@ -116,7 +122,18 @@ public class StorageServer extends NanoHTTPD {
             contentLength = Long.parseLong(clStr);
         }
 
-        if (storageDir.getUsableSpace() - contentLength < 50 * 1024 * 1024) {
+        long remainingBytes = storageDir.getUsableSpace() - contentLength;
+        Timber.tag(TAG).i("Receiving chunk %s into %s (%s, usable after write %s)",
+                chunkId,
+                storageDir.getAbsolutePath(),
+                humanBytes(contentLength),
+                humanBytes(remainingBytes));
+
+        if (remainingBytes < 50 * 1024 * 1024) {
+            Timber.tag(TAG).e("Rejecting chunk %s because storage would fall below reserve: usable=%s content=%s",
+                    chunkId,
+                    humanBytes(storageDir.getUsableSpace()),
+                    humanBytes(contentLength));
             return jsonResponse(INSUFFICIENT_STORAGE, new JSONObject().put("error", "insufficient_storage"));
         }
 
@@ -132,6 +149,7 @@ public class StorageServer extends NanoHTTPD {
             } else {
                 String postData = files.get("postData");
                 if (postData == null) {
+                    Timber.tag(TAG).e("PUT %s did not include content payload", chunkId);
                     return jsonResponse(Response.Status.BAD_REQUEST, new JSONObject().put("error", "missing_content"));
                 }
                 tempFile = File.createTempFile("chunk", ".tmp", storageDir);
@@ -143,17 +161,24 @@ public class StorageServer extends NanoHTTPD {
         String actualHash = computeSHA256(tempFile);
 
         if (!actualHash.equalsIgnoreCase(chunkId)) {
+            Timber.tag(TAG).e("Checksum mismatch for temp chunk %s: expected %s but computed %s (%s)",
+                    tempFile.getAbsolutePath(),
+                    chunkId,
+                    actualHash,
+                    humanBytes(tempFile.length()));
             tempFile.delete();
             return jsonResponse(Response.Status.BAD_REQUEST, new JSONObject().put("error", "checksum_incorrect"));
         }
 
         File targetFile = new File(storageDir, chunkId);
         if (!tempFile.renameTo(targetFile)) {
+            Timber.tag(TAG).w("Rename failed for %s -> %s, copying instead", tempFile.getAbsolutePath(), targetFile.getAbsolutePath());
             copyFile(tempFile, targetFile);
             tempFile.delete();
         }
 
         storageHealth = null;
+        Timber.tag(TAG).i("Saved %s chunk at %s", humanBytes(targetFile.length()), targetFile.getAbsolutePath());
 
         return newFixedLengthResponse(Response.Status.OK, NanoHTTPD.MIME_PLAINTEXT, "OK");
     }
@@ -161,26 +186,32 @@ public class StorageServer extends NanoHTTPD {
     private Response handleDeleteChunk(String chunkId) throws Exception {
         File file = new File(storageDir, chunkId);
         if (!file.exists() || !file.isFile()) {
+            Timber.tag(TAG).w("Delete requested for missing chunk %s", chunkId);
             return jsonResponse(Response.Status.NOT_FOUND, new JSONObject().put("error", "not_found"));
         }
 
         if (file.delete()) {
             storageHealth = null;
+            Timber.tag(TAG).i("Deleted chunk %s at %s (%s)", chunkId, file.getAbsolutePath(), humanBytes(file.length()));
             return newFixedLengthResponse(Response.Status.OK, NanoHTTPD.MIME_PLAINTEXT, "OK");
         }
+        Timber.tag(TAG).e("Failed to delete chunk %s at %s", chunkId, file.getAbsolutePath());
         return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, "Delete failed");
     }
 
     private Response handleListChunks() throws Exception {
         JSONArray array = new JSONArray();
         File[] files = storageDir.listFiles();
+        int count = 0;
         if (files != null) {
             for (File f : files) {
                 if (f.isFile() && SHA256_PATTERN.matcher(f.getName()).matches()) {
                     array.put(f.getName());
+                    count++;
                 }
             }
         }
+        Timber.tag(TAG).d("Listed %d chunks from %s", count, storageDir.getAbsolutePath());
         return jsonResponse(Response.Status.OK, array);
     }
 
@@ -191,6 +222,7 @@ public class StorageServer extends NanoHTTPD {
 
         long now = System.currentTimeMillis();
         if (storageHealth != null && (now - storageHealth.timestamp) < (maxAge * 1000L)) {
+            Timber.tag(TAG).d("Returning cached health check for %s with status=%s", storageDir.getAbsolutePath(), storageHealth.status);
             JSONObject json = new JSONObject()
                     .put("status", storageHealth.status)
                     .put("bad_chunks", new JSONArray(storageHealth.badChunks));
@@ -215,6 +247,10 @@ public class StorageServer extends NanoHTTPD {
 
         newHealth.status = newHealth.badChunks.isEmpty() ? "healthy" : "degraded";
         storageHealth = newHealth;
+        Timber.tag(TAG).i("Health check complete for %s: status=%s bad_chunks=%d",
+                storageDir.getAbsolutePath(),
+                storageHealth.status,
+                storageHealth.badChunks.size());
 
         JSONObject json = new JSONObject()
                 .put("status", storageHealth.status)
@@ -236,11 +272,21 @@ public class StorageServer extends NanoHTTPD {
             }
         }
 
+        Timber.tag(TAG).d("Storage info for %s: used=%s available=%s total=%s",
+                storageDir.getAbsolutePath(),
+                humanBytes(used),
+                humanBytes(available),
+                humanBytes(total));
+
         JSONObject json = new JSONObject()
                 .put("total_space", total)
                 .put("used_space", used)
                 .put("available_space", available);
         return jsonResponse(Response.Status.OK, json);
+    }
+
+    private Response handleLogs() {
+        return newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", AppLogStore.getInstance().snapshotText());
     }
 
     private String computeSHA256(File file) throws Exception {
@@ -272,4 +318,25 @@ public class StorageServer extends NanoHTTPD {
             }
         }
     }
+
+    private static String humanBytes(long bytes) {
+        if (bytes < 0) {
+            return bytes + "B";
+        }
+        if (bytes < 1024) {
+            return bytes + "B";
+        }
+
+        String[] units = {"KB", "MB", "GB", "TB"};
+        double value = bytes;
+        int unitIndex = -1;
+        do {
+            value /= 1024.0;
+            unitIndex++;
+        } while (value >= 1024.0 && unitIndex < units.length - 1);
+
+        return String.format(java.util.Locale.US, "%.2f%s", value, units[unitIndex]);
+    }
+
+    
 }
