@@ -10,6 +10,10 @@
 #include "ggml-backend.h"
 #include "ggml-rpc.h"
 
+#if !defined(RPC_PROTO_MAJOR_VERSION)
+#error "Android RPC server requires rmcluster/llama.cpp-rpc headers. Clone git@github.com:rmcluster/llama.cpp-rpc.git at the repo root."
+#endif
+
 #define TAG "LLAMA_RPC_SERVER"
 #define LOG_INFO(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOG_ERROR(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
