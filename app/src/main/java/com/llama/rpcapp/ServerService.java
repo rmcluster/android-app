@@ -11,15 +11,18 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.BatteryManager;
 import android.content.IntentFilter;
-import android.util.Log;
 import android.content.pm.ServiceInfo;
 import java.io.File;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.URLEncoder;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import fi.iki.elonen.NanoHTTPD;
+import timber.log.Timber;
 
 public class ServerService extends Service {
     private static final String LOG_TAG = "ServerService";
@@ -74,7 +77,7 @@ public class ServerService extends Service {
         try {
             storageDir = getStorageDirectory("StorageApp");
         } catch (IllegalStateException e) {
-            Log.e(LOG_TAG, "Failed to initialize storage directory", e);
+            Timber.tag(LOG_TAG).e(e, "Failed to initialize storage directory");
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -84,15 +87,15 @@ public class ServerService extends Service {
             //default timeout, 5 seconds
             storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
             advertiseStorage = true;
-            Log.i(LOG_TAG, "Storage server started on port " + storagePort);
+            Timber.tag(LOG_TAG).i("Storage server started on port %d", storagePort);
         } catch (Exception e) {
-            Log.e(LOG_TAG, "Failed to start storage server", e);
+            Timber.tag(LOG_TAG).e(e, "Failed to start storage server");
         }
 
         if (hasDiscoveryIp) {
             startDiscoveryPing(discoveryIp, discoveryPort, discoveryToken, assignedPort, advertiseStorage ? storagePort : 0, nodeId);
         } else {
-            Log.i(LOG_TAG, "No discovery IP configured, no pings");
+            Timber.tag(LOG_TAG).i("No discovery IP configured, no pings");
         }
 
         String displayHost = host.equals("0.0.0.0") ? getLocalIpAddress() : host;
@@ -111,7 +114,7 @@ public class ServerService extends Service {
 
         serverThread = new Thread(() -> {
             try {
-                Log.i(LOG_TAG, "Starting RPC server process on " + host + ":" + assignedPort);
+                Timber.tag(LOG_TAG).i("Starting RPC server process on %s:%d", host, assignedPort);
 
                 String cacheDir = getCacheDir().getAbsolutePath(); 
                 String executablePath = getApplicationInfo().nativeLibraryDir + "/librpc-server.so";
@@ -124,12 +127,26 @@ public class ServerService extends Service {
                 );
                 pb.environment().put("LD_LIBRARY_PATH", getApplicationInfo().nativeLibraryDir);
                 pb.redirectErrorStream(true);
-                rpcProcess = pb.start();
+                rpcProcess = pb.start();            
                 
+                Thread loggingThread = new Thread(() -> {
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                    String logTag = "LlamaRPC";
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(rpcProcess.getInputStream()))) { 
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            Timber.tag(logTag).d(line);
+                        }
+                    } catch (IOException e) {
+                        Timber.tag(logTag).e(e, "Error reading process stream");
+                    }
+                }, "rpc-process-logger");
+                loggingThread.start();
                 int exitCode = rpcProcess.waitFor();
-                Log.i(LOG_TAG, "RPC server process exited with code " + exitCode);
+                loggingThread.join(500);
+                Timber.tag(LOG_TAG).i("RPC server process exited with code %d", exitCode);
             } catch (Throwable t) {
-                Log.e(LOG_TAG, "FATAL: RPC server process crashed", t);
+                Timber.tag(LOG_TAG).e(t, "FATAL: RPC server process crashed");
             } finally {
                 isRunning = false;
                 stopForeground(true);
@@ -150,7 +167,7 @@ public class ServerService extends Service {
             if ((folder.exists() || folder.mkdirs()) && folder.isDirectory()) {
                 return folder;
             }
-            Log.e(LOG_TAG, "Failed to create storage directory at " + folder.getAbsolutePath() + ", falling back to internal storage");
+            Timber.tag(LOG_TAG).e("Failed to create storage directory at %s, falling back to internal storage", folder.getAbsolutePath());
         }
 
         File fallbackFolder = new File(fallbackBase, folderName);
@@ -170,10 +187,10 @@ public class ServerService extends Service {
         } catch (java.io.IOException e) {
             try {
                 int assignedPort = tryBindPort(0);
-                Log.w(LOG_TAG, "Port " + requestedPort + " was occupied. Dynamically bound to " + assignedPort);
+                Timber.tag(LOG_TAG).w("Port %d was occupied. Dynamically bound to %d", requestedPort, assignedPort);
                 return assignedPort;
             } catch (java.io.IOException ex) {
-                Log.e(LOG_TAG, "Could not find a free port", ex);
+                Timber.tag(LOG_TAG).e(ex, "Could not find a free port");
                 return requestedPort;
             }
         }
@@ -195,13 +212,13 @@ public class ServerService extends Service {
                 for (java.util.Enumeration<java.net.InetAddress> enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements(); ) {
                     java.net.InetAddress inetAddress = enumIpAddr.nextElement();
                     if (!inetAddress.isLoopbackAddress() && inetAddress instanceof java.net.Inet4Address) {
-                        Log.i(LOG_TAG, "Found IP via NetworkInterface (" + intf.getName() + "): " + inetAddress.getHostAddress());
+                        Timber.tag(LOG_TAG).i("Found IP via NetworkInterface (%s): %s", intf.getName(), inetAddress.getHostAddress());
                         return inetAddress.getHostAddress();
                     }
                 }
             }
         } catch (Exception ex) {
-            Log.e(LOG_TAG, "IP Address error", ex);
+            Timber.tag(LOG_TAG).e(ex, "IP Address error");
         }
         return "0.0.0.0";
     }
@@ -245,7 +262,7 @@ public class ServerService extends Service {
                         conn.setReadTimeout(5000);
                         int responseCode = conn.getResponseCode();
                         if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
-                            Log.e(LOG_TAG, "Failed to announce to tracker, response code: " + responseCode);
+                            Timber.tag(LOG_TAG).e("Failed to announce to tracker, response code: %d", responseCode);
                             Thread.sleep(1000);
                             continue;
                         }
@@ -253,7 +270,7 @@ public class ServerService extends Service {
                              java.util.Scanner scanner = new java.util.Scanner(in).useDelimiter("\\A")) {
                             String responseBody = scanner.hasNext() ? scanner.next() : "";
                             int interval = new org.json.JSONObject(responseBody).getInt("interval");
-                            Log.d(LOG_TAG, "Announced to tracker, reannouncing in " + interval + " seconds");
+                            Timber.tag(LOG_TAG).d("Announced to tracker, reannouncing in %d seconds", interval);
                             Thread.sleep(interval * 1000L);
                         }
                     } finally {
@@ -263,7 +280,7 @@ public class ServerService extends Service {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
-                    Log.e(LOG_TAG, "Error in discovery thread", e);
+                    Timber.tag(LOG_TAG).e(e, "Error in discovery thread");
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException ie) {
@@ -279,7 +296,7 @@ public class ServerService extends Service {
     private long estimateUsableMemoryBytes() {
         ActivityManager activityManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         if (activityManager == null) {
-            Log.w(LOG_TAG, "ActivityManager unavailable; advertising unknown memory capacity");
+            Timber.tag(LOG_TAG).w("ActivityManager unavailable; advertising unknown memory capacity");
             return 0;
         }
 
@@ -288,11 +305,12 @@ public class ServerService extends Service {
 
         long advertisedBytes = Math.max(0L, memoryInfo.availMem);
 
-        Log.d(LOG_TAG, "Discovery memory estimate: totalMem=" + memoryInfo.totalMem
-                + " availMem=" + memoryInfo.availMem
-                + " threshold=" + memoryInfo.threshold
-                + " lowMemory=" + memoryInfo.lowMemory
-                + " advertised=" + advertisedBytes);
+        Timber.tag(LOG_TAG).d("Discovery memory estimate: totalMem=%d availMem=%d threshold=%d lowMemory=%s advertised=%d",
+                memoryInfo.totalMem,
+                memoryInfo.availMem,
+                memoryInfo.threshold,
+                memoryInfo.lowMemory,
+                advertisedBytes);
 
         return advertisedBytes;
     }
@@ -316,7 +334,7 @@ public class ServerService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        Log.i(LOG_TAG, "Service destroyed. Requesting process stop...");
+        Timber.tag(LOG_TAG).i("Service destroyed. Requesting process stop...");
         isRunning = false;
         if (discoveryThread != null) {
             discoveryThread.interrupt();

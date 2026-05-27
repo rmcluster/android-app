@@ -9,7 +9,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.format.Formatter;
-import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -24,6 +23,8 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
+
+import timber.log.Timber;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
@@ -138,12 +139,12 @@ public class MainActivity extends AppCompatActivity {
             );
             settings.saveConfig(config);
         } catch (NumberFormatException e) {
-            Log.e(TAG, "Failed to save settings: invalid number format", e);
+            Timber.tag(TAG).e(e, "Failed to save settings: invalid number format");
         }
     }
 
     private void parseUri(Uri uri) {
-        Log.d(TAG, "Parsing URI: " + uri);
+        Timber.tag(TAG).d("Parsing URI: %s", uri);
         if (!"rmcluster".equals(uri.getScheme()) || !"connect".equals(uri.getHost())) {
             Toast.makeText(this, "QR code is not a cluster connection code", Toast.LENGTH_LONG).show();
             return;
@@ -190,7 +191,7 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
-                    Log.w(TAG, "Play Services scanner unavailable, falling back to ZXing", e);
+                    Timber.tag(TAG).w(e, "Play Services scanner unavailable, falling back to ZXing");
                     Toast.makeText(this, "Play Services scanner unavailable, using fallback scanner", Toast.LENGTH_LONG).show();
                     startZxingScanner();
                 });
