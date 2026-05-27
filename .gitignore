@@ -32,3 +32,6 @@ obj/
 *.swp
 *~
 .DS_Store
+
+# Ignore Gradle home wrapper cache
+.gradle-home/
