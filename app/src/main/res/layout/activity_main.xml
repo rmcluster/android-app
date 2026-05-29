@@ -1,23 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:padding="16dp"
-        android:gravity="center_horizontal">
-        <!-- <TextView
-            android:id="@+id/tvTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Llama RPC Server"
-            android:textSize="24sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp" /> -->
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:padding="16dp">
+
 
         <Button
             android:id="@+id/btnScanQr"
@@ -33,32 +21,6 @@
             android:text="IP Address: Loading..."
             android:textSize="18sp"
             android:layout_marginBottom="16dp" />
-
-        <EditText
-            android:id="@+id/etHost"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Host IP"
-            android:inputType="textUri"
-            android:text="0.0.0.0"
-            android:layout_marginBottom="8dp" />
-
-        <EditText
-            android:id="@+id/etPort"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Port [Preferred: 47671]"
-            android:inputType="number"
-            android:text=""
-            android:layout_marginBottom="8dp" />
-
-        <EditText
-            android:id="@+id/etStoragePort"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Storage Port [Preferred: 47672]"
-            android:inputType="number"
-            android:layout_marginBottom="8dp" />
 
         <EditText
             android:id="@+id/etDiscoveryIp"
@@ -99,6 +61,22 @@
             android:visibility="gone"
             android:backgroundTint="#FF5252" />
 
-    </LinearLayout>
-</ScrollView>
+        <ScrollView
+            android:id="@+id/logScrollView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="16dp"
+            android:background="#000000"
+            android:fillViewport="true">
 
+            <TextView
+                android:id="@+id/logTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:textColor="#00FF00"
+                android:textIsSelectable="true"
+                android:typeface="monospace" />
+        </ScrollView>
+</LinearLayout>

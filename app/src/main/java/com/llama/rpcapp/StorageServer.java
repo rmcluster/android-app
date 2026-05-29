@@ -121,6 +121,7 @@ public class StorageServer extends NanoHTTPD {
         if (clStr != null) {
             contentLength = Long.parseLong(clStr);
         }
+        Timber.tag(TAG).d("PUT chunk %s headers=%s", chunkId, session.getHeaders());
 
         long remainingBytes = storageDir.getUsableSpace() - contentLength;
         Timber.tag(TAG).i("Receiving chunk %s into %s (%s, usable after write %s)",
@@ -146,6 +147,7 @@ public class StorageServer extends NanoHTTPD {
             String tempFilePath = files.get("content");
             if (tempFilePath != null) {
                 tempFile = new File(tempFilePath);
+                Timber.tag(TAG).d("PUT %s received body file %s", chunkId, tempFile.getAbsolutePath());
             } else {
                 String postData = files.get("postData");
                 if (postData == null) {
