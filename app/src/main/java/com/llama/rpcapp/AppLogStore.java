@@ -1,18 +1,26 @@
 package com.llama.rpcapp;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.Date;
 import java.util.Locale;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public final class AppLogStore {
     public static final long MAX_AGE_MS = 5 * 60 * 1000L;
     public static final int MAX_LINES = 100;
     private static final ThreadLocal<SimpleDateFormat> TIMESTAMP_FORMAT =
-            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US));
+            new ThreadLocal<SimpleDateFormat>() {
+                @Override
+                protected SimpleDateFormat initialValue() {
+                    return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US);
+                }
+            };
 
     private static final AppLogStore INSTANCE = new AppLogStore();
     private final ArrayDeque<LogLine> lines = new ArrayDeque<>();
+    private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
 
     private AppLogStore() {
     }
@@ -21,27 +29,56 @@ public final class AppLogStore {
         return INSTANCE;
     }
 
-    public synchronized void append(int priority, String tag, String message, long timestampMs) {
-        pruneLocked(timestampMs);
+    public interface Listener {
+        void onLogsChanged(String text);
+    }
 
-        if (message == null || message.isEmpty()) {
-            message = "";
+    public void addListener(Listener listener) {
+        if (listener != null) {
+            listeners.addIfAbsent(listener);
+        }
+    }
+
+    public void removeListener(Listener listener) {
+        listeners.remove(listener);
+    }
+
+    public void append(int priority, String tag, String message, long timestampMs) {
+        String snapshot;
+        ArrayList<Listener> listenersSnapshot;
+
+        synchronized (this) {
+            pruneLocked(timestampMs);
+
+            if (message == null || message.isEmpty()) {
+                message = "";
+            }
+
+            String[] splitLines = message.split("\\r?\\n", -1);
+            for (String line : splitLines) {
+                lines.addLast(new LogLine(timestampMs, formatLine(timestampMs, priorityToLevel(priority), tag, line)));
+            }
+
+            while (lines.size() > MAX_LINES) {
+                lines.removeFirst();
+            }
+
+            snapshot = snapshotTextLocked();
+            listenersSnapshot = new ArrayList<>(listeners);
         }
 
-        String[] splitLines = message.split("\\r?\\n", -1);
-        for (String line : splitLines) {
-            lines.addLast(new LogLine(timestampMs, formatLine(timestampMs, priorityToLevel(priority), tag, line)));
-        }
-
-        while (lines.size() > MAX_LINES) {
-            lines.removeFirst();
+        for (Listener listener : listenersSnapshot) {
+            listener.onLogsChanged(snapshot);
         }
     }
 
     public synchronized String snapshotText() {
         long now = System.currentTimeMillis();
         pruneLocked(now);
+        return snapshotTextLocked();
+    }
 
+    private String snapshotTextLocked() {
         StringBuilder out = new StringBuilder();
         boolean first = true;
         for (LogLine line : lines) {

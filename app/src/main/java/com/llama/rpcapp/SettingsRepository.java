@@ -4,14 +4,15 @@ import android.content.Context;
 import android.content.SharedPreferences; //apply() writes to disk (xml file)
 import java.util.UUID;
 
+
+
 public class SettingsRepository {
     private static final String PREF_NAME = "rpc_server_settings";
-    private static final String KEY_HOST = "host";
-    private static final String KEY_PORT = "port";
     private static final String KEY_THREADS = "threads";
     private static final String KEY_DISCOVERY_IP = "discovery_ip";
     private static final String KEY_DISCOVERY_PORT = "discovery_port";
     private static final String KEY_DISCOVERY_TOKEN = "discovery_token";
+    private static final String KEY_PORT = "port";
     private static final String KEY_STORAGE_PORT = "storage_port";
     private static final String NODE_ID = "node_id";
 
@@ -24,7 +25,6 @@ public class SettingsRepository {
     public ServerConfig loadConfig() {
         return new ServerConfig(
                 prefs.getString(NODE_ID, UUID.randomUUID().toString()),
-                prefs.getString(KEY_HOST, "0.0.0.0"),
                 prefs.getInt(KEY_PORT, 47671),
                 prefs.getInt(KEY_STORAGE_PORT, 47672),
                 prefs.getString(KEY_DISCOVERY_IP, ""),
@@ -37,7 +37,6 @@ public class SettingsRepository {
     public void saveConfig(ServerConfig config) {
         prefs.edit()
                 .putString(NODE_ID, config.nodeId)
-                .putString(KEY_HOST, config.host)
                 .putInt(KEY_PORT, config.port)
                 .putInt(KEY_STORAGE_PORT, config.storagePort)
                 .putString(KEY_DISCOVERY_IP, config.discoveryIp)

@@ -12,6 +12,7 @@ import android.text.format.Formatter;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,9 +32,12 @@ public class MainActivity extends AppCompatActivity {
     private static final long SCAN_TIMEOUT_MS = 45_000L;
 
     private final Handler scanTimeoutHandler = new Handler(Looper.getMainLooper());
+    private final AppLogStore.Listener logListener = text ->
+            runOnUiThread(() -> updateLogs(text, true));
 
-    private TextView tvIpAddress;
-    private EditText etPort, etStoragePort, etThreads, etHost, etDiscoveryIp, etDiscoveryPort;
+    private TextView tvIpAddress, tvLogs;
+    private ScrollView logScrollView;
+    private EditText etThreads, etDiscoveryIp, etDiscoveryPort;
     private Button btnStart, btnStop, btnScanQr;
     private SettingsRepository settings;
     private String discoveryToken = "";
@@ -49,9 +53,8 @@ public class MainActivity extends AppCompatActivity {
         settings = new SettingsRepository(this);
 
         tvIpAddress = findViewById(R.id.tvIpAddress);
-        etHost = findViewById(R.id.etHost);
-        etPort = findViewById(R.id.etPort);
-        etStoragePort = findViewById(R.id.etStoragePort);
+        tvLogs = findViewById(R.id.logTextView);
+        logScrollView = findViewById(R.id.logScrollView);
         etDiscoveryIp = findViewById(R.id.etDiscoveryIp);
         etDiscoveryPort = findViewById(R.id.etDiscoveryPort);
         etThreads = findViewById(R.id.etThreads);
@@ -75,6 +78,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnScanQr.setOnClickListener(v -> startQrScanner());
+        updateLogs(AppLogStore.getInstance().snapshotText(), false);
 
         if (getIntent().getBooleanExtra("autoStart", false)) {
             startRpcService();
@@ -85,8 +89,11 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         ServerConfig config = settings.loadConfig();
-        etPort.setText(String.valueOf(config.port));
-        etStoragePort.setText(String.valueOf(config.storagePort));
+        etDiscoveryIp.setText(config.discoveryIp);
+        etDiscoveryPort.setText(String.valueOf(config.discoveryPort));
+        etThreads.setText(String.valueOf(config.threads));
+        AppLogStore.getInstance().addListener(logListener);
+        updateLogs(AppLogStore.getInstance().snapshotText(), false);
     }
 
     @Override
@@ -113,11 +120,14 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
+    @Override
+    protected void onPause() {
+        AppLogStore.getInstance().removeListener(logListener);
+        super.onPause();
+    }
+
     private void loadSettings() {
         ServerConfig config = settings.loadConfig();
-        etHost.setText(config.host);
-        etPort.setText(String.valueOf(config.port));
-        etStoragePort.setText(String.valueOf(config.storagePort));
         etDiscoveryIp.setText(config.discoveryIp);
         etDiscoveryPort.setText(String.valueOf(config.discoveryPort));
         discoveryToken = config.discoveryToken;
@@ -129,9 +139,8 @@ public class MainActivity extends AppCompatActivity {
             ServerConfig oldConfig = settings.loadConfig();
             ServerConfig config = new ServerConfig(
                     oldConfig.nodeId,
-                    etHost.getText().toString(),
-                    Integer.parseInt(etPort.getText().toString()),
-                    Integer.parseInt(etStoragePort.getText().toString()),
+                    oldConfig.port,
+                    oldConfig.storagePort,
                     etDiscoveryIp.getText().toString(),
                     Integer.parseInt(etDiscoveryPort.getText().toString()),
                     discoveryToken,
@@ -244,6 +253,13 @@ public class MainActivity extends AppCompatActivity {
         btnStart.setEnabled(!running);
         btnStart.setText(running ? "SERVER RUNNING" : "START SERVER");
         btnStop.setVisibility(running ? View.VISIBLE : View.GONE);
+    }
+
+    private void updateLogs(String text, boolean scrollToBottom) {
+        tvLogs.setText(text);
+        if (scrollToBottom) {
+            logScrollView.post(() -> logScrollView.fullScroll(View.FOCUS_DOWN));
+        }
     }
 
     private String getWifiIpAddress() {

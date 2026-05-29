@@ -12,11 +12,15 @@ import android.os.IBinder;
 import android.os.BatteryManager;
 import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
+import android.util.Log;
 import java.io.File;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URLEncoder;
+import java.util.Map;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -26,6 +30,8 @@ import timber.log.Timber;
 
 public class ServerService extends Service {
     private static final String LOG_TAG = "ServerService";
+    private static final int DEFAULT_PORT = 47671;
+    private static final int DEFAULT_THREADS = 4;
     private Thread serverThread;
     private Process rpcProcess;
     private Thread discoveryThread;
@@ -51,8 +57,6 @@ public class ServerService extends Service {
         SettingsRepository settings = new SettingsRepository(this);
         ServerConfig baseConfig = settings.loadConfig();
 
-        String host = baseConfig.host;
-        int requestedPort = baseConfig.port;
         String discoveryIp = baseConfig.discoveryIp;
         int discoveryPort = baseConfig.discoveryPort;
         String discoveryToken = baseConfig.discoveryToken;
@@ -60,12 +64,11 @@ public class ServerService extends Service {
         String nodeId = baseConfig.nodeId;
         boolean hasDiscoveryIp = !discoveryIp.isEmpty();
 
-        int assignedPort = findAvailablePort(requestedPort);
+        int assignedPort = findAvailablePort(DEFAULT_PORT);
         int storagePort = findAvailablePort(assignedPort + 1);
         
         settings.saveConfig(new ServerConfig(
                 nodeId,
-                host,
                 assignedPort,
                 storagePort,
                 discoveryIp,
@@ -87,7 +90,7 @@ public class ServerService extends Service {
             //default timeout, 5 seconds
             storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
             advertiseStorage = true;
-            Timber.tag(LOG_TAG).i("Storage server started on port %d", storagePort);
+            Timber.tag(LOG_TAG).i("Storage server started on port %d serving %s", storagePort, storageDir.getAbsolutePath());
         } catch (Exception e) {
             Timber.tag(LOG_TAG).e(e, "Failed to start storage server");
         }
@@ -98,11 +101,10 @@ public class ServerService extends Service {
             Timber.tag(LOG_TAG).i("No discovery IP configured, no pings");
         }
 
-        String displayHost = host.equals("0.0.0.0") ? getLocalIpAddress() : host;
-
+        String host = getLocalIpAddress();
         Notification notification = new NotificationCompat.Builder(this, "RpcServerChannel")
                 .setContentTitle("RMCluster Node")
-                .setContentText("Running on " + displayHost + ":" + assignedPort)
+                .setContentText("Running on " + host + ":" + assignedPort)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build();
 
@@ -116,17 +118,25 @@ public class ServerService extends Service {
             try {
                 Timber.tag(LOG_TAG).i("Starting RPC server process on %s:%d", host, assignedPort);
 
-                String cacheDir = getCacheDir().getAbsolutePath(); 
+                File llamaCacheDir = ensureDirectory(new File(getCacheDir(), "llama.cpp"));
                 String executablePath = getApplicationInfo().nativeLibraryDir + "/librpc-server.so";
                 ProcessBuilder pb = new ProcessBuilder(
-                    executablePath,
-                    host,
-                    String.valueOf(assignedPort),
-                    String.valueOf(threads),
-                    cacheDir
+                        executablePath,
+                        "0.0.0.0",
+                        String.valueOf(assignedPort),
+                        String.valueOf(threads),
+                        llamaCacheDir.getAbsolutePath()
                 );
-                pb.environment().put("LD_LIBRARY_PATH", getApplicationInfo().nativeLibraryDir);
+                pb.directory(getFilesDir());
+                Map<String, String> env = pb.environment();
+                env.put("HOME", getFilesDir().getAbsolutePath());
+                env.put("TMPDIR", getCacheDir().getAbsolutePath());
+                env.put("LLAMA_CACHE", llamaCacheDir.getAbsolutePath());
+                env.put("GGML_RPC_DEBUG", "1");
+                env.put("LD_LIBRARY_PATH", getApplicationInfo().nativeLibraryDir);
                 pb.redirectErrorStream(true);
+                Timber.tag(LOG_TAG).i("RPC process cwd=%s cache=%s", getFilesDir().getAbsolutePath(), llamaCacheDir.getAbsolutePath());
+                Timber.tag(LOG_TAG).d("RPC command: %s", pb.command());
                 rpcProcess = pb.start();            
                 
                 Thread loggingThread = new Thread(() -> {
@@ -178,6 +188,13 @@ public class ServerService extends Service {
         throw new IllegalStateException(
                 "Failed to create storage directory at " + fallbackFolder.getAbsolutePath()
         );
+    }
+
+    private File ensureDirectory(File dir) {
+        if ((dir.exists() || dir.mkdirs()) && dir.isDirectory()) {
+            return dir;
+        }
+        throw new IllegalStateException("Failed to create directory at " + dir.getAbsolutePath());
     }
 
     private int findAvailablePort(int requestedPort) {
