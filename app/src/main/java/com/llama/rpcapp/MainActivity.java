@@ -1,14 +1,10 @@
 package com.llama.rpcapp;
 
-import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import android.net.wifi.WifiInfo;
-import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.format.Formatter;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -35,9 +31,9 @@ public class MainActivity extends AppCompatActivity {
     private final AppLogStore.Listener logListener = text ->
             runOnUiThread(() -> updateLogs(text, true));
 
-    private TextView tvIpAddress, tvLogs;
+    private TextView tvLogs;
     private ScrollView logScrollView;
-    private EditText etThreads, etDiscoveryIp, etDiscoveryPort;
+    private EditText etThreads, etDiscoveryIp, etDiscoveryPort, etNickname;
     private Button btnStart, btnStop, btnScanQr;
     private SettingsRepository settings;
     private String discoveryToken = "";
@@ -52,21 +48,17 @@ public class MainActivity extends AppCompatActivity {
 
         settings = new SettingsRepository(this);
 
-        tvIpAddress = findViewById(R.id.tvIpAddress);
         tvLogs = findViewById(R.id.logTextView);
         logScrollView = findViewById(R.id.logScrollView);
         etDiscoveryIp = findViewById(R.id.etDiscoveryIp);
         etDiscoveryPort = findViewById(R.id.etDiscoveryPort);
+        etNickname = findViewById(R.id.etNickname);
         etThreads = findViewById(R.id.etThreads);
         btnStart = findViewById(R.id.btnStart);
         btnStop = findViewById(R.id.btnStop);
         btnScanQr = findViewById(R.id.btnScanQr);
 
         loadSettings();
-
-        String ip = getWifiIpAddress();
-        tvIpAddress.setText(String.format("IP Address: %s", ip));
-
         btnStart.setOnClickListener(v -> {
             saveSettings();
             startRpcService();
@@ -91,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
         ServerConfig config = settings.loadConfig();
         etDiscoveryIp.setText(config.discoveryIp);
         etDiscoveryPort.setText(String.valueOf(config.discoveryPort));
+        etNickname.setText(config.nickname);
         etThreads.setText(String.valueOf(config.threads));
         AppLogStore.getInstance().addListener(logListener);
         updateLogs(AppLogStore.getInstance().snapshotText(), false);
@@ -131,6 +124,7 @@ public class MainActivity extends AppCompatActivity {
         etDiscoveryIp.setText(config.discoveryIp);
         etDiscoveryPort.setText(String.valueOf(config.discoveryPort));
         discoveryToken = config.discoveryToken;
+        etNickname.setText(config.nickname);
         etThreads.setText(String.valueOf(config.threads));
     }
 
@@ -144,6 +138,7 @@ public class MainActivity extends AppCompatActivity {
                     etDiscoveryIp.getText().toString(),
                     Integer.parseInt(etDiscoveryPort.getText().toString()),
                     discoveryToken,
+                    etNickname.getText().toString(),
                     Integer.parseInt(etThreads.getText().toString())
             );
             settings.saveConfig(config);
@@ -262,10 +257,4 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private String getWifiIpAddress() {
-        WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        WifiInfo wifiInfo = wifiManager.getConnectionInfo();
-        int ipInt = wifiInfo.getIpAddress();
-        return Formatter.formatIpAddress(ipInt);
-    }
 }

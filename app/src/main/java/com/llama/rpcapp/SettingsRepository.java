@@ -12,6 +12,7 @@ public class SettingsRepository {
     private static final String KEY_DISCOVERY_IP = "discovery_ip";
     private static final String KEY_DISCOVERY_PORT = "discovery_port";
     private static final String KEY_DISCOVERY_TOKEN = "discovery_token";
+    private static final String KEY_NICKNAME = "nickname";
     private static final String KEY_PORT = "port";
     private static final String KEY_STORAGE_PORT = "storage_port";
     private static final String NODE_ID = "node_id";
@@ -30,6 +31,7 @@ public class SettingsRepository {
                 prefs.getString(KEY_DISCOVERY_IP, ""),
                 prefs.getInt(KEY_DISCOVERY_PORT, 4917),
                 prefs.getString(KEY_DISCOVERY_TOKEN, ""),
+                prefs.getString(KEY_NICKNAME, ""),
                 prefs.getInt(KEY_THREADS, 4)
         );
     }
@@ -42,6 +44,7 @@ public class SettingsRepository {
                 .putString(KEY_DISCOVERY_IP, config.discoveryIp)
                 .putInt(KEY_DISCOVERY_PORT, config.discoveryPort)
                 .putString(KEY_DISCOVERY_TOKEN, config.discoveryToken)
+                .putString(KEY_NICKNAME, config.nickname)
                 .putInt(KEY_THREADS, config.threads)
                 .apply();
     }
