@@ -246,7 +246,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void setServerUiState(boolean running) {
         btnStart.setEnabled(!running);
-        btnStart.setText(running ? "SERVER RUNNING" : "START SERVER");
+        btnStart.setVisibility(running ? View.GONE : View.VISIBLE);
         btnStop.setVisibility(running ? View.VISIBLE : View.GONE);
     }
 
