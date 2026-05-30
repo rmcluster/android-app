@@ -60,6 +60,7 @@ public class ServerService extends Service {
         String discoveryIp = baseConfig.discoveryIp;
         int discoveryPort = baseConfig.discoveryPort;
         String discoveryToken = baseConfig.discoveryToken;
+        String nickname = baseConfig.nickname;
         int threads = baseConfig.threads;
         String nodeId = baseConfig.nodeId;
         boolean hasDiscoveryIp = !discoveryIp.isEmpty();
@@ -74,6 +75,7 @@ public class ServerService extends Service {
                 discoveryIp,
                 discoveryPort,
                 discoveryToken,
+                nickname,
                 threads
         ));
         File storageDir;
@@ -96,7 +98,7 @@ public class ServerService extends Service {
         }
 
         if (hasDiscoveryIp) {
-            startDiscoveryPing(discoveryIp, discoveryPort, discoveryToken, assignedPort, advertiseStorage ? storagePort : 0, nodeId);
+            startDiscoveryPing(discoveryIp, discoveryPort, discoveryToken, nickname, assignedPort, advertiseStorage ? storagePort : 0, nodeId);
         } else {
             Timber.tag(LOG_TAG).i("No discovery IP configured, no pings");
         }
@@ -240,7 +242,7 @@ public class ServerService extends Service {
         return "0.0.0.0";
     }
 
-    private void startDiscoveryPing(String targetIp, int targetPort, String discoveryToken, int servicePort, int storagePort, String nodeId) {
+    private void startDiscoveryPing(String targetIp, int targetPort, String discoveryToken, String nickname, int servicePort, int storagePort, String nodeId) {
         isRunning = true;
         discoveryThread = new Thread(() -> {
             try {
@@ -269,6 +271,9 @@ public class ServerService extends Service {
                             + "&temperature=" + temperature;
                     if (!discoveryToken.isEmpty()) {
                         urlString += "&token=" + URLEncoder.encode(discoveryToken, "UTF-8");
+                    }
+                    if (!nickname.isEmpty()) {
+                        urlString += "&nickname=" + URLEncoder.encode(nickname, "UTF-8");
                     }
 
                     java.net.URL url = new java.net.URL(urlString);

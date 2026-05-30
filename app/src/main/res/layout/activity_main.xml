@@ -6,6 +6,16 @@
     android:orientation="vertical"
     android:padding="16dp">
 
+        <EditText
+            android:id="@+id/etNickname"
+            android:layout_width="220dp"
+            android:layout_height="wrap_content"
+            android:hint="Nickname"
+            android:inputType="textPersonName"
+            android:gravity="center"
+            android:textAlignment="center"
+            android:textSize="14sp"
+            android:layout_marginBottom="12dp" />
 
         <Button
             android:id="@+id/btnScanQr"
