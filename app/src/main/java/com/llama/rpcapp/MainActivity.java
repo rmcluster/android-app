@@ -1,10 +1,14 @@
 package com.llama.rpcapp;
 
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.format.Formatter;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -31,7 +35,7 @@ public class MainActivity extends AppCompatActivity {
     private final AppLogStore.Listener logListener = text ->
             runOnUiThread(() -> updateLogs(text, true));
 
-    private TextView tvLogs;
+    private TextView tvIpAddress, tvLogs;
     private ScrollView logScrollView;
     private EditText etThreads, etDiscoveryIp, etDiscoveryPort, etNickname;
     private Button btnStart, btnStop, btnScanQr;
@@ -48,6 +52,7 @@ public class MainActivity extends AppCompatActivity {
 
         settings = new SettingsRepository(this);
 
+        tvIpAddress = findViewById(R.id.tvIpAddress);
         tvLogs = findViewById(R.id.logTextView);
         logScrollView = findViewById(R.id.logScrollView);
         etDiscoveryIp = findViewById(R.id.etDiscoveryIp);
@@ -59,6 +64,8 @@ public class MainActivity extends AppCompatActivity {
         btnScanQr = findViewById(R.id.btnScanQr);
 
         loadSettings();
+        String ip = getWifiIpAddress();
+        tvIpAddress.setText(String.format("IP Address: %s", ip));
         btnStart.setOnClickListener(v -> {
             saveSettings();
             startRpcService();
@@ -255,6 +262,11 @@ public class MainActivity extends AppCompatActivity {
         if (scrollToBottom) {
             logScrollView.post(() -> logScrollView.fullScroll(View.FOCUS_DOWN));
         }
+    private String getWifiIpAddress() {
+        WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        WifiInfo wifiInfo = wifiManager.getConnectionInfo();
+        int ipInt = wifiInfo.getIpAddress();
+        return Formatter.formatIpAddress(ipInt);
     }
 
 }
