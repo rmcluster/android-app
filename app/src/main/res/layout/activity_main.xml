@@ -2,83 +2,149 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center_horizontal"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:orientation="vertical">
 
-        <EditText
-            android:id="@+id/etNickname"
-            android:layout_width="220dp"
-            android:layout_height="wrap_content"
-            android:hint="Nickname"
-            android:inputType="textPersonName"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:textSize="14sp"
-            android:layout_marginBottom="12dp" />
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/formScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:clipToPadding="false">
 
-        <Button
-            android:id="@+id/btnScanQr"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Scan QR Code"
-            android:layout_marginBottom="16dp" />
-
-        <EditText
-            android:id="@+id/etDiscoveryIp"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Discovery IP"
-            android:inputType="textUri"
-            android:text=""
-            android:layout_marginBottom="8dp" />
+            android:orientation="vertical">
 
-        <EditText
-            android:id="@+id/etDiscoveryPort"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Discovery Port (default 4917)"
-            android:inputType="number"
-            android:layout_marginBottom="8dp" />
-
-        <EditText
-            android:id="@+id/etThreads"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Threads (default 4)"
-            android:inputType="number"
-            android:layout_marginBottom="24dp" />
-
-        <Button
-            android:id="@+id/btnStart"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="CONNECT TO CLUSTER" />
-
-        <Button
-            android:id="@+id/btnStop"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="STOP (Process Restart)"
-            android:visibility="gone"
-            android:backgroundTint="#FF5252" />
-
-        <ScrollView
-            android:id="@+id/logScrollView"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:layout_marginTop="16dp"
-            android:background="#000000"
-            android:fillViewport="true">
-
+            <!-- Name -->
             <TextView
-                android:id="@+id/logTextView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:padding="8dp"
-                android:textColor="#00FF00"
-                android:textIsSelectable="true"
-                android:typeface="monospace" />
-        </ScrollView>
+                android:text="NAME"
+                android:textSize="11sp"
+                android:textColor="#888888"
+                android:letterSpacing="0.08"
+                android:layout_marginBottom="4dp" />
+
+            <EditText
+                android:id="@+id/etNickname"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Nickname"
+                android:inputType="textPersonName"
+                android:layout_marginBottom="20dp" />
+
+            <!-- Connection -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="CONNECTION"
+                android:textSize="11sp"
+                android:textColor="#888888"
+                android:letterSpacing="0.08"
+                android:layout_marginBottom="4dp" />
+
+            <Button
+                android:id="@+id/btnScanQr"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Scan QR Code"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/etConnectionString"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Paste rmcluster:// connection link"
+                android:inputType="textUri"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:id="@+id/tvConnectionStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:visibility="gone"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Paste a rmcluster://connect URL or scan a QR code, or enter coordinator details below."
+                android:textSize="12sp"
+                android:textColor="#888888"
+                android:layout_marginBottom="20dp" />
+
+            <!-- Coordinator -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="COORDINATOR"
+                android:textSize="11sp"
+                android:textColor="#888888"
+                android:letterSpacing="0.08"
+                android:layout_marginBottom="4dp" />
+
+            <EditText
+                android:id="@+id/etDiscoveryIp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Server IP or host"
+                android:inputType="textUri"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/etDiscoveryPort"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Server port (default 4917)"
+                android:inputType="number"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/etThreads"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Thread count (default 4)"
+                android:inputType="number"
+                android:layout_marginBottom="24dp" />
+
+            <!-- Action buttons -->
+            <Button
+                android:id="@+id/btnStart"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="CONNECT TO CLUSTER" />
+
+            <Button
+                android:id="@+id/btnStop"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="DISCONNECT FROM CLUSTER"
+                android:visibility="gone"
+                android:backgroundTint="#FF5252" />
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <!-- Logs -->
+    <ScrollView
+        android:id="@+id/logScrollView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp"
+        android:background="#000000"
+        android:fillViewport="true">
+
+        <TextView
+            android:id="@+id/logTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:textColor="#00FF00"
+            android:textIsSelectable="true"
+            android:typeface="monospace" />
+    </ScrollView>
+
 </LinearLayout>

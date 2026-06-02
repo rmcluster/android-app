@@ -8,6 +8,8 @@ import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.text.format.Formatter;
 import android.view.View;
 import android.widget.Button;
@@ -18,6 +20,8 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
@@ -35,9 +39,9 @@ public class MainActivity extends AppCompatActivity {
     private final AppLogStore.Listener logListener = text ->
             runOnUiThread(() -> updateLogs(text, true));
 
-    private TextView tvLogs;
+    private TextView tvLogs, tvConnectionStatus;
     private ScrollView logScrollView;
-    private EditText etThreads, etDiscoveryIp, etDiscoveryPort, etNickname;
+    private EditText etThreads, etDiscoveryIp, etDiscoveryPort, etNickname, etConnectionString;
     private Button btnStart, btnStop, btnScanQr;
     private SettingsRepository settings;
     private String discoveryToken = "";
@@ -52,18 +56,43 @@ public class MainActivity extends AppCompatActivity {
 
         settings = new SettingsRepository(this);
 
+        View formScroll = findViewById(R.id.formScroll);
+        int basePaddingTop = formScroll.getPaddingTop();
+        ViewCompat.setOnApplyWindowInsetsListener(formScroll, (v, insets) -> {
+            int sysTop = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top;
+            v.setPadding(v.getPaddingLeft(), basePaddingTop + sysTop, v.getPaddingRight(), v.getPaddingBottom());
+            return insets;
+        });
+
         tvLogs = findViewById(R.id.logTextView);
+        tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
         logScrollView = findViewById(R.id.logScrollView);
         etDiscoveryIp = findViewById(R.id.etDiscoveryIp);
         etDiscoveryPort = findViewById(R.id.etDiscoveryPort);
         etNickname = findViewById(R.id.etNickname);
         etThreads = findViewById(R.id.etThreads);
+        etConnectionString = findViewById(R.id.etConnectionString);
         btnStart = findViewById(R.id.btnStart);
         btnStop = findViewById(R.id.btnStop);
         btnScanQr = findViewById(R.id.btnScanQr);
 
+        etConnectionString.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable s) {
+                String text = s.toString().trim();
+                if (text.startsWith("rmcluster://")) {
+                    applyConnectionLink(Uri.parse(text));
+                }
+            }
+        });
+
         loadSettings();
         btnStart.setOnClickListener(v -> {
+            String connectionStr = etConnectionString.getText().toString().trim();
+            if (!connectionStr.isEmpty()) {
+                if (!applyConnectionLink(Uri.parse(connectionStr))) return;
+            }
             saveSettings();
             startRpcService();
         });
@@ -168,28 +197,44 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void parseUri(Uri uri) {
-        Timber.tag(TAG).d("Parsing URI: %s", uri);
+    // Populates coordinator fields from a link without starting the connection.
+    // Used by the paste text field so the user can review before connecting.
+    private boolean applyConnectionLink(Uri uri) {
         if (!"rmcluster".equals(uri.getScheme()) || !"connect".equals(uri.getHost())) {
-            Toast.makeText(this, "Not a cluster connection link", Toast.LENGTH_LONG).show();
-            return;
+            showConnectionStatus("Not a valid rmcluster:// link", false);
+            return false;
         }
         try {
             String url = uri.getQueryParameter("url");
             String port = uri.getQueryParameter("port");
             String token = uri.getQueryParameter("token");
             if (url == null || url.isEmpty()) {
-                Toast.makeText(this, "Connection link is missing server address", Toast.LENGTH_LONG).show();
-                return;
+                showConnectionStatus("Link is missing server address", false);
+                return false;
             }
             etDiscoveryIp.setText(url);
             if (port != null) etDiscoveryPort.setText(port);
             discoveryToken = token != null ? token : "";
-            saveSettings();
-            startRpcService();
+            showConnectionStatus("Coordinator: " + url + (port != null ? ":" + port : ""), true);
+            return true;
         } catch (Exception e) {
-            Toast.makeText(this, "Invalid connection link", Toast.LENGTH_LONG).show();
+            showConnectionStatus("Invalid connection link", false);
+            return false;
         }
+    }
+
+    // Parses a link and immediately starts the connection. Used by QR scan and deep links.
+    private void parseUri(Uri uri) {
+        Timber.tag(TAG).d("Parsing URI: %s", uri);
+        if (!applyConnectionLink(uri)) return;
+        saveSettings();
+        startRpcService();
+    }
+
+    private void showConnectionStatus(String message, boolean success) {
+        tvConnectionStatus.setText(message);
+        tvConnectionStatus.setTextColor(success ? 0xFF4CAF50 : 0xFFE53935);
+        tvConnectionStatus.setVisibility(View.VISIBLE);
     }
 
     private void startQrScanner() {
