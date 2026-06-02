@@ -38,6 +38,21 @@ public class ServerService extends Service {
     private StorageServer storageServer;
     private volatile boolean isRunning = false;
 
+    public enum UiState { IDLE, CONNECTING, CONNECTED }
+    public static volatile UiState currentState = UiState.IDLE;
+
+    public interface StateListener { void onStateChanged(UiState state); }
+    private static volatile StateListener stateListener = null;
+    public static void setStateListener(StateListener l) { stateListener = l; }
+
+    private void notifyState(UiState state) {
+        currentState = state;
+        StateListener l = stateListener;
+        if (l != null) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> l.onStateChanged(state));
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -87,18 +102,19 @@ public class ServerService extends Service {
             return START_NOT_STICKY;
         }
         storageServer = new StorageServer(storagePort, storageDir);
-        boolean advertiseStorage = false;
         try {
-            //default timeout, 5 seconds
             storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
-            advertiseStorage = true;
             Timber.tag(LOG_TAG).i("Storage server started on port %d serving %s", storagePort, storageDir.getAbsolutePath());
         } catch (Exception e) {
             Timber.tag(LOG_TAG).e(e, "Failed to start storage server");
+            notifyState(UiState.IDLE);
+            stopSelf();
+            return START_NOT_STICKY;
         }
 
         if (hasDiscoveryIp) {
-            startDiscoveryPing(discoveryIp, discoveryPort, discoveryToken, nickname, assignedPort, advertiseStorage ? storagePort : 0, nodeId);
+            notifyState(UiState.CONNECTING);
+            startDiscoveryPing(discoveryIp, discoveryPort, discoveryToken, nickname, assignedPort, storagePort, nodeId);
         } else {
             Timber.tag(LOG_TAG).i("No discovery IP configured, no pings");
         }
@@ -252,6 +268,7 @@ public class ServerService extends Service {
                 Thread.currentThread().interrupt();
                 return;
             }
+            boolean connected = false;
             while (isRunning) {
                 try {
                     String model = Build.MODEL;
@@ -293,6 +310,10 @@ public class ServerService extends Service {
                             String responseBody = scanner.hasNext() ? scanner.next() : "";
                             int interval = new org.json.JSONObject(responseBody).getInt("interval");
                             Timber.tag(LOG_TAG).d("Announced to tracker, reannouncing in %d seconds", interval);
+                            if (!connected) {
+                                connected = true;
+                                notifyState(UiState.CONNECTED);
+                            }
                             Thread.sleep(interval * 1000L);
                         }
                     } finally {
@@ -357,6 +378,7 @@ public class ServerService extends Service {
     public void onDestroy() {
         super.onDestroy();
         Timber.tag(LOG_TAG).i("Service destroyed. Requesting process stop...");
+        notifyState(UiState.IDLE);
         isRunning = false;
         if (discoveryThread != null) {
             discoveryThread.interrupt();

@@ -70,7 +70,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnStop.setOnClickListener(v -> {
             stopService(new Intent(this, ServerService.class));
-            setServerUiState(false);
+            setServerUiState(ServerService.UiState.IDLE);
         });
 
         btnScanQr.setOnClickListener(v -> startQrScanner());
@@ -78,6 +78,20 @@ public class MainActivity extends AppCompatActivity {
 
         if (getIntent().getBooleanExtra("autoStart", false)) {
             startRpcService();
+        }
+
+        Uri deepLink = getIntent().getData();
+        if (deepLink != null) {
+            parseUri(deepLink);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        Uri deepLink = intent.getData();
+        if (deepLink != null) {
+            parseUri(deepLink);
         }
     }
 
@@ -91,6 +105,8 @@ public class MainActivity extends AppCompatActivity {
         etThreads.setText(String.valueOf(config.threads));
         AppLogStore.getInstance().addListener(logListener);
         updateLogs(AppLogStore.getInstance().snapshotText(), false);
+        ServerService.setStateListener(state -> setServerUiState(state));
+        setServerUiState(ServerService.currentState);
     }
 
     @Override
@@ -119,6 +135,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
+        ServerService.setStateListener(null);
         AppLogStore.getInstance().removeListener(logListener);
         super.onPause();
     }
@@ -154,21 +171,24 @@ public class MainActivity extends AppCompatActivity {
     private void parseUri(Uri uri) {
         Timber.tag(TAG).d("Parsing URI: %s", uri);
         if (!"rmcluster".equals(uri.getScheme()) || !"connect".equals(uri.getHost())) {
-            Toast.makeText(this, "QR code is not a cluster connection code", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Not a cluster connection link", Toast.LENGTH_LONG).show();
             return;
         }
         try {
             String url = uri.getQueryParameter("url");
             String port = uri.getQueryParameter("port");
             String token = uri.getQueryParameter("token");
-            if (url != null) etDiscoveryIp.setText(url);
+            if (url == null || url.isEmpty()) {
+                Toast.makeText(this, "Connection link is missing server address", Toast.LENGTH_LONG).show();
+                return;
+            }
+            etDiscoveryIp.setText(url);
             if (port != null) etDiscoveryPort.setText(port);
             discoveryToken = token != null ? token : "";
-
-            Toast.makeText(this, "Connected to: " + url + ":" + port, Toast.LENGTH_SHORT).show();
             saveSettings();
+            startRpcService();
         } catch (Exception e) {
-            Toast.makeText(this, "Scanned QR code is invalid", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Invalid connection link", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -244,13 +264,28 @@ public class MainActivity extends AppCompatActivity {
     private void startRpcService() {
         Intent serviceIntent = new Intent(this, ServerService.class);
         ContextCompat.startForegroundService(this, serviceIntent);
-        setServerUiState(true);
+        setServerUiState(ServerService.UiState.CONNECTING);
     }
 
-    private void setServerUiState(boolean running) {
-        btnStart.setEnabled(!running);
-        btnStart.setVisibility(running ? View.GONE : View.VISIBLE);
-        btnStop.setVisibility(running ? View.VISIBLE : View.GONE);
+    private void setServerUiState(ServerService.UiState state) {
+        switch (state) {
+            case IDLE:
+                btnStart.setVisibility(View.VISIBLE);
+                btnStop.setVisibility(View.GONE);
+                break;
+            case CONNECTING:
+                btnStart.setVisibility(View.GONE);
+                btnStop.setVisibility(View.VISIBLE);
+                btnStop.setText("CANCEL CONNECTION");
+                btnStop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFFF6D00));
+                break;
+            case CONNECTED:
+                btnStart.setVisibility(View.GONE);
+                btnStop.setVisibility(View.VISIBLE);
+                btnStop.setText("DISCONNECT FROM CLUSTER");
+                btnStop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFFF5252));
+                break;
+        }
     }
 
     private void updateLogs(String text, boolean scrollToBottom) {
