@@ -25,7 +25,6 @@ import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -616,7 +615,7 @@ public class ServerService extends Service {
 
         process.destroy();
         try {
-            if (!process.waitFor(SHUTDOWN_WAIT_MS, TimeUnit.MILLISECONDS)) {
+            if (!waitForProcessExit(process, SHUTDOWN_WAIT_MS)) {
                 Timber.tag(LOG_TAG).w("RPC process did not exit after destroy(); forcing termination");
                 process.destroyForcibly();
             }
@@ -641,7 +640,7 @@ public class ServerService extends Service {
         synchronized (lifecycleLock) {
             process = rpcProcess;
         }
-        if (process == null || !process.isAlive()) {
+        if (process == null || !processIsAlive(process)) {
             return false;
         }
         try (Socket socket = new Socket()) {
@@ -759,6 +758,26 @@ public class ServerService extends Service {
 
     private void setLastHealthError(String message) {
         lastHealthError = message == null ? "" : message.trim();
+    }
+
+    private boolean processIsAlive(Process process) {
+        try {
+            process.exitValue();
+            return false;
+        } catch (IllegalThreadStateException stillRunning) {
+            return true;
+        }
+    }
+
+    private boolean waitForProcessExit(Process process, long timeoutMs) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (!processIsAlive(process)) {
+                return true;
+            }
+            Thread.sleep(25);
+        }
+        return !processIsAlive(process);
     }
 
     private static String describeError(Exception error, String fallback) {
