@@ -1,26 +1,31 @@
 package com.llama.rpcapp;
 
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
-import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
-import android.os.IBinder;
-import android.os.BatteryManager;
 import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
-import android.util.Log;
-import java.io.File;
+import android.os.BatteryManager;
+import android.os.Build;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.URL;
 import java.net.URLEncoder;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -30,26 +35,85 @@ import timber.log.Timber;
 
 public class ServerService extends Service {
     private static final String LOG_TAG = "ServerService";
+    private static final String CHANNEL_ID = "RpcServerStatusChannel";
+    private static final int NOTIFICATION_ID = 1;
     private static final int DEFAULT_PORT = 47671;
-    private static final int DEFAULT_THREADS = 4;
-    private Thread serverThread;
+    private static final int HEALTH_CHECK_TIMEOUT_MS = 1500;
+    private static final int RECOVERY_BACKOFF_MS = 2000;
+    private static final int STARTUP_GRACE_MS = 2000;
+    private static final int SHUTDOWN_WAIT_MS = 1000;
+
+    private final Object lifecycleLock = new Object();
+
     private Process rpcProcess;
+    private Thread rpcProcessLoggerThread;
+    private Thread rpcProcessWatcherThread;
     private Thread discoveryThread;
     private StorageServer storageServer;
+
+    private File storageDir;
+    private File llamaCacheDir;
+    private String host = "0.0.0.0";
+    private int assignedPort = DEFAULT_PORT;
+    private int storagePort = DEFAULT_PORT + 1;
+
     private volatile boolean isRunning = false;
+    private volatile boolean isShuttingDown = false;
+    private volatile boolean discoveryEnabled = false;
+    private Boolean lastRpcHealthy = null;
+    private Boolean lastStorageHealthy = null;
+    private Boolean lastAnnounceEligible = null;
+    private volatile String lastHealthError = "";
 
     public enum UiState { IDLE, CONNECTING, CONNECTED }
     public static volatile UiState currentState = UiState.IDLE;
 
+    public static final class HealthSnapshot {
+        public final String status;
+        public final String lastError;
+        public final boolean rpcHealthy;
+        public final boolean storageHealthy;
+        public final boolean announceEligible;
+
+        public HealthSnapshot(String status, String lastError, boolean rpcHealthy, boolean storageHealthy, boolean announceEligible) {
+            this.status = status;
+            this.lastError = lastError;
+            this.rpcHealthy = rpcHealthy;
+            this.storageHealthy = storageHealthy;
+            this.announceEligible = announceEligible;
+        }
+    }
+
+    public interface HealthListener { void onHealthChanged(HealthSnapshot snapshot); }
+    public static volatile HealthSnapshot currentHealth = new HealthSnapshot("idle", "", false, false, false);
+    private static volatile HealthListener healthListener = null;
+
     public interface StateListener { void onStateChanged(UiState state); }
     private static volatile StateListener stateListener = null;
-    public static void setStateListener(StateListener l) { stateListener = l; }
+
+    public static void setStateListener(StateListener listener) {
+        stateListener = listener;
+    }
+
+    public static void setHealthListener(HealthListener listener) {
+        healthListener = listener;
+    }
 
     private void notifyState(UiState state) {
         currentState = state;
-        StateListener l = stateListener;
-        if (l != null) {
-            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> l.onStateChanged(state));
+        StateListener listener = stateListener;
+        if (listener != null) {
+            new Handler(Looper.getMainLooper()).post(() -> listener.onStateChanged(state));
+        }
+    }
+
+    private void notifyHealth(String status, boolean rpcHealthy, boolean storageHealthy) {
+        boolean announceEligible = rpcHealthy && storageHealthy;
+        HealthSnapshot snapshot = new HealthSnapshot(status, lastHealthError, rpcHealthy, storageHealthy, announceEligible);
+        currentHealth = snapshot;
+        HealthListener listener = healthListener;
+        if (listener != null) {
+            new Handler(Looper.getMainLooper()).post(() -> listener.onHealthChanged(snapshot));
         }
     }
 
@@ -58,10 +122,13 @@ public class ServerService extends Service {
         super.onCreate();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel serviceChannel = new NotificationChannel(
-                    "RpcServerChannel",
+                    CHANNEL_ID,
                     "RPC Server Service Channel",
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    NotificationManager.IMPORTANCE_LOW
             );
+            serviceChannel.setDescription("Background node status updates");
+            serviceChannel.enableVibration(false);
+            serviceChannel.setShowBadge(false);
             NotificationManager manager = getSystemService(NotificationManager.class);
             manager.createNotificationChannel(serviceChannel);
         }
@@ -69,6 +136,15 @@ public class ServerService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        synchronized (lifecycleLock) {
+            if (isRunning) {
+                Timber.tag(LOG_TAG).i("ServerService already running; ignoring duplicate start");
+                return START_NOT_STICKY;
+            }
+            isRunning = true;
+            isShuttingDown = false;
+        }
+
         SettingsRepository settings = new SettingsRepository(this);
         ServerConfig baseConfig = settings.loadConfig();
 
@@ -78,11 +154,13 @@ public class ServerService extends Service {
         String nickname = baseConfig.nickname;
         int threads = baseConfig.threads;
         String nodeId = baseConfig.nodeId;
-        boolean hasDiscoveryIp = !discoveryIp.isEmpty();
 
-        int assignedPort = findAvailablePort(DEFAULT_PORT);
-        int storagePort = findAvailablePort(assignedPort + 1);
-        
+        discoveryEnabled = !discoveryIp.isEmpty();
+        assignedPort = findAvailablePort(DEFAULT_PORT);
+        storagePort = findAvailablePort(assignedPort + 1);
+        host = getLocalIpAddress();
+        notifyState(UiState.CONNECTING);
+
         settings.saveConfig(new ServerConfig(
                 nodeId,
                 assignedPort,
@@ -93,95 +171,44 @@ public class ServerService extends Service {
                 nickname,
                 threads
         ));
-        File storageDir;
+
+        Notification notification = buildNotification("Starting on " + host + ":" + assignedPort);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
+
         try {
             storageDir = getStorageDirectory("StorageApp");
+            llamaCacheDir = ensureDirectory(new File(getCacheDir(), "llama.cpp"));
         } catch (IllegalStateException e) {
             Timber.tag(LOG_TAG).e(e, "Failed to initialize storage directory");
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-        storageServer = new StorageServer(storagePort, storageDir);
-        try {
-            storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
-            Timber.tag(LOG_TAG).i("Storage server started on port %d serving %s", storagePort, storageDir.getAbsolutePath());
-        } catch (Exception e) {
-            Timber.tag(LOG_TAG).e(e, "Failed to start storage server");
+            setLastHealthError("Failed to initialize storage directory");
+            updateRuntimeState("unavailable", false, false);
             notifyState(UiState.IDLE);
-            stopSelf();
+            shutdownService();
             return START_NOT_STICKY;
         }
 
-        if (hasDiscoveryIp) {
-            notifyState(UiState.CONNECTING);
-            startDiscoveryPing(discoveryIp, discoveryPort, discoveryToken, nickname, assignedPort, storagePort, nodeId);
-        } else {
-            Timber.tag(LOG_TAG).i("No discovery IP configured, no pings");
+        try {
+            startStorageServer();
+        } catch (Exception e) {
+            Timber.tag(LOG_TAG).e(e, "Initial storage server startup failed; recovery loop will retry");
+            setLastHealthError(describeError(e, "Initial storage server startup failed"));
         }
 
-        String host = getLocalIpAddress();
-        Notification notification = new NotificationCompat.Builder(this, "RpcServerChannel")
-                .setContentTitle("RMCluster Node")
-                .setContentText("Running on " + host + ":" + assignedPort)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .build();
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        } else {
-            startForeground(1, notification);
+        try {
+            startRpcProcess(threads);
+        } catch (Exception e) {
+            Timber.tag(LOG_TAG).e(e, "Initial RPC process startup failed; recovery loop will retry");
+            setLastHealthError(describeError(e, "Initial RPC process startup failed"));
         }
 
-        serverThread = new Thread(() -> {
-            try {
-                Timber.tag(LOG_TAG).i("Starting RPC server process on %s:%d", host, assignedPort);
-
-                File llamaCacheDir = ensureDirectory(new File(getCacheDir(), "llama.cpp"));
-                String executablePath = getApplicationInfo().nativeLibraryDir + "/librpc-server.so";
-                ProcessBuilder pb = new ProcessBuilder(
-                        executablePath,
-                        "0.0.0.0",
-                        String.valueOf(assignedPort),
-                        String.valueOf(threads),
-                        llamaCacheDir.getAbsolutePath()
-                );
-                pb.directory(getFilesDir());
-                Map<String, String> env = pb.environment();
-                env.put("HOME", getFilesDir().getAbsolutePath());
-                env.put("TMPDIR", getCacheDir().getAbsolutePath());
-                env.put("LLAMA_CACHE", llamaCacheDir.getAbsolutePath());
-                env.put("GGML_RPC_DEBUG", "1");
-                env.put("LD_LIBRARY_PATH", getApplicationInfo().nativeLibraryDir);
-                pb.redirectErrorStream(true);
-                Timber.tag(LOG_TAG).i("RPC process cwd=%s cache=%s", getFilesDir().getAbsolutePath(), llamaCacheDir.getAbsolutePath());
-                Timber.tag(LOG_TAG).d("RPC command: %s", pb.command());
-                rpcProcess = pb.start();            
-                
-                Thread loggingThread = new Thread(() -> {
-                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
-                    String logTag = "LlamaRPC";
-                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(rpcProcess.getInputStream()))) { 
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            Timber.tag(logTag).d(line);
-                        }
-                    } catch (IOException e) {
-                        Timber.tag(logTag).e(e, "Error reading process stream");
-                    }
-                }, "rpc-process-logger");
-                loggingThread.start();
-                int exitCode = rpcProcess.waitFor();
-                loggingThread.join(500);
-                Timber.tag(LOG_TAG).i("RPC server process exited with code %d", exitCode);
-            } catch (Throwable t) {
-                Timber.tag(LOG_TAG).e(t, "FATAL: RPC server process crashed");
-            } finally {
-                isRunning = false;
-                stopForeground(true);
-                stopSelf();
-            }
-        });
-        serverThread.start();
+        startDiscoveryPing(discoveryIp, discoveryPort, discoveryToken, nickname, nodeId, threads);
+        synchronized (lifecycleLock) {
+            updateRuntimeState("starting", rpcProcess != null, storageServer != null);
+        }
 
         return START_NOT_STICKY;
     }
@@ -203,9 +230,7 @@ public class ServerService extends Service {
             return fallbackFolder;
         }
 
-        throw new IllegalStateException(
-                "Failed to create storage directory at " + fallbackFolder.getAbsolutePath()
-        );
+        throw new IllegalStateException("Failed to create storage directory at " + fallbackFolder.getAbsolutePath());
     }
 
     private File ensureDirectory(File dir) {
@@ -219,33 +244,37 @@ public class ServerService extends Service {
         try {
             tryBindPort(requestedPort);
             return requestedPort;
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             try {
-                int assignedPort = tryBindPort(0);
-                Timber.tag(LOG_TAG).w("Port %d was occupied. Dynamically bound to %d", requestedPort, assignedPort);
-                return assignedPort;
-            } catch (java.io.IOException ex) {
+                int resolvedPort = tryBindPort(0);
+                Timber.tag(LOG_TAG).w("Port %d was occupied. Dynamically bound to %d", requestedPort, resolvedPort);
+                return resolvedPort;
+            } catch (IOException ex) {
                 Timber.tag(LOG_TAG).e(ex, "Could not find a free port");
                 return requestedPort;
             }
         }
     }
 
-    private int tryBindPort(int port) throws java.io.IOException {
+    private int tryBindPort(int port) throws IOException {
         try (java.net.ServerSocket socket = new java.net.ServerSocket()) {
             socket.setReuseAddress(false);
-            socket.bind(new java.net.InetSocketAddress("0.0.0.0", port));
+            socket.bind(new InetSocketAddress("0.0.0.0", port));
             return socket.getLocalPort();
         }
     }
 
     private String getLocalIpAddress() {
         try {
-            for (java.util.Enumeration<java.net.NetworkInterface> en = java.net.NetworkInterface.getNetworkInterfaces(); en.hasMoreElements(); ) {
-                java.net.NetworkInterface intf = en.nextElement();
-                if (!intf.getName().contains("wlan")) continue;
-                for (java.util.Enumeration<java.net.InetAddress> enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements(); ) {
-                    java.net.InetAddress inetAddress = enumIpAddr.nextElement();
+            for (java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+                 interfaces.hasMoreElements(); ) {
+                java.net.NetworkInterface intf = interfaces.nextElement();
+                if (!intf.getName().contains("wlan")) {
+                    continue;
+                }
+                for (java.util.Enumeration<java.net.InetAddress> addresses = intf.getInetAddresses();
+                     addresses.hasMoreElements(); ) {
+                    java.net.InetAddress inetAddress = addresses.nextElement();
                     if (!inetAddress.isLoopbackAddress() && inetAddress instanceof java.net.Inet4Address) {
                         Timber.tag(LOG_TAG).i("Found IP via NetworkInterface (%s): %s", intf.getName(), inetAddress.getHostAddress());
                         return inetAddress.getHostAddress();
@@ -258,28 +287,62 @@ public class ServerService extends Service {
         return "0.0.0.0";
     }
 
-    private void startDiscoveryPing(String targetIp, int targetPort, String discoveryToken, String nickname, int servicePort, int storagePort, String nodeId) {
-        isRunning = true;
+    private Notification buildNotification(String contentText) {
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("RMCluster Node")
+                .setContentText(contentText)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+                .build();
+    }
+
+    private void updateNotificationStatus(String contentText) {
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify(NOTIFICATION_ID, buildNotification(contentText));
+        }
+    }
+
+    private void startDiscoveryPing(String targetIp, int targetPort, String discoveryToken, String nickname, String nodeId, int threads) {
         discoveryThread = new Thread(() -> {
             try {
-                // Give the native server a moment to bind to the port
-                Thread.sleep(2000);
+                Thread.sleep(STARTUP_GRACE_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
             }
-            boolean connected = false;
+
+            if (!discoveryEnabled) {
+                Timber.tag(LOG_TAG).i("No discovery IP configured; running health supervisor without tracker announces");
+            }
+
             while (isRunning) {
                 try {
+                    boolean servicesHealthy = ensureServicesHealthy(threads);
+                    if (!servicesHealthy) {
+                        notifyState(UiState.CONNECTING);
+                        Timber.tag(LOG_TAG).w("Announce skipped, storage and/or inference unhealthy.");
+                        Thread.sleep(RECOVERY_BACKOFF_MS);
+                        continue;
+                    }
+
                     String model = Build.MODEL;
                     long maxSize = estimateUsableMemoryBytes();
                     float battery = readBatteryPercent();
                     float temperature = readBatteryTemperatureC();
-
                     String localIp = getLocalIpAddress();
+
+                    if (!discoveryEnabled) {
+                        notifyState(UiState.CONNECTED);
+                        updateRuntimeState("running", true, true);
+                        Thread.sleep(RECOVERY_BACKOFF_MS);
+                        continue;
+                    }
+
                     String urlString = "http://" + targetIp + ":" + targetPort
                             + "/announce?id=" + nodeId
-                            + "&port=" + servicePort
+                            + "&port=" + assignedPort
                             + "&storage_port=" + storagePort
                             + "&ip=" + localIp
                             + "&model=" + URLEncoder.encode(model, "UTF-8")
@@ -293,15 +356,18 @@ public class ServerService extends Service {
                         urlString += "&nickname=" + URLEncoder.encode(nickname, "UTF-8");
                     }
 
-                    java.net.URL url = new java.net.URL(urlString);
-                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    URL url = new URL(urlString);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                     try {
                         conn.setRequestMethod("GET");
                         conn.setConnectTimeout(5000);
                         conn.setReadTimeout(5000);
                         int responseCode = conn.getResponseCode();
-                        if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
+                        if (responseCode != HttpURLConnection.HTTP_OK) {
+                            notifyState(UiState.CONNECTING);
                             Timber.tag(LOG_TAG).e("Failed to announce to tracker, response code: %d", responseCode);
+                            setLastHealthError("Tracker responded with HTTP " + responseCode);
+                            updateRuntimeState("degraded", true, true);
                             Thread.sleep(1000);
                             continue;
                         }
@@ -309,11 +375,9 @@ public class ServerService extends Service {
                              java.util.Scanner scanner = new java.util.Scanner(in).useDelimiter("\\A")) {
                             String responseBody = scanner.hasNext() ? scanner.next() : "";
                             int interval = new org.json.JSONObject(responseBody).getInt("interval");
+                            notifyState(UiState.CONNECTED);
                             Timber.tag(LOG_TAG).d("Announced to tracker, reannouncing in %d seconds", interval);
-                            if (!connected) {
-                                connected = true;
-                                notifyState(UiState.CONNECTED);
-                            }
+                            updateRuntimeState("running", true, true);
                             Thread.sleep(interval * 1000L);
                         }
                     } finally {
@@ -323,7 +387,10 @@ public class ServerService extends Service {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
+                    notifyState(UiState.CONNECTING);
                     Timber.tag(LOG_TAG).e(e, "Error in discovery thread");
+                    setLastHealthError(describeError(e, "Discovery loop error"));
+                    updateRuntimeState("unavailable", isRpcHealthy(), isStorageHealthy());
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException ie) {
@@ -332,8 +399,294 @@ public class ServerService extends Service {
                     }
                 }
             }
-        });
+        }, "service-supervisor");
         discoveryThread.start();
+    }
+
+    private boolean ensureServicesHealthy(int threads) {
+        boolean rpcHealthy = isRpcHealthy();
+        boolean storageHealthy = isStorageHealthy();
+
+        if (!rpcHealthy) {
+            Timber.tag(LOG_TAG).w("RPC unhealthy; attempting restart on port %d", assignedPort);
+            try {
+                restartRpcProcess(threads);
+            } catch (Exception e) {
+                Timber.tag(LOG_TAG).e(e, "RPC restart failed");
+                setLastHealthError(describeError(e, "RPC restart failed"));
+            }
+            rpcHealthy = isRpcHealthy();
+            if (rpcHealthy) {
+                Timber.tag(LOG_TAG).i("RPC restart succeeded");
+            }
+        }
+
+        if (!storageHealthy) {
+            Timber.tag(LOG_TAG).w("Storage unhealthy; attempting restart on port %d", storagePort);
+            try {
+                restartStorageServer();
+            } catch (Exception e) {
+                Timber.tag(LOG_TAG).e(e, "Storage restart failed");
+                setLastHealthError(describeError(e, "Storage restart failed"));
+            }
+            storageHealthy = isStorageHealthy();
+            if (storageHealthy) {
+                Timber.tag(LOG_TAG).i("Storage restart succeeded");
+            }
+        }
+
+        updateRuntimeState(rpcHealthy && storageHealthy ? "running" : "recovering", rpcHealthy, storageHealthy);
+        return rpcHealthy && storageHealthy;
+    }
+
+    private void updateRuntimeState(String state, boolean rpcHealthy, boolean storageHealthy) {
+        if (lastRpcHealthy == null || lastRpcHealthy != rpcHealthy) {
+            Timber.tag(LOG_TAG).i("RPC health changed: %s", rpcHealthy ? "healthy" : "unhealthy");
+            lastRpcHealthy = rpcHealthy;
+        }
+        if (lastStorageHealthy == null || lastStorageHealthy != storageHealthy) {
+            Timber.tag(LOG_TAG).i("Storage health changed: %s", storageHealthy ? "healthy" : "unhealthy");
+            lastStorageHealthy = storageHealthy;
+        }
+
+        boolean announceEligible = rpcHealthy && storageHealthy;
+        if (lastAnnounceEligible == null || lastAnnounceEligible != announceEligible) {
+            Timber.tag(LOG_TAG).i("Tracker announce eligibility changed: %s", announceEligible ? "enabled" : "paused");
+            lastAnnounceEligible = announceEligible;
+        }
+
+        if ("running".equals(state)) {
+            lastHealthError = "";
+        }
+
+        String healthLabel;
+        if ("degraded".equals(state)) {
+            healthLabel = "Tracker unavailable";
+        } else if ("starting".equals(state)) {
+            healthLabel = "Starting";
+        } else if ("unavailable".equals(state)) {
+            healthLabel = "Unavailable";
+        } else if (announceEligible) {
+            healthLabel = "Healthy";
+        } else if (!rpcHealthy && !storageHealthy) {
+            healthLabel = "Recovering RPC + storage";
+        } else if (!rpcHealthy) {
+            healthLabel = "Recovering RPC";
+        } else {
+            healthLabel = "Recovering storage";
+        }
+        updateNotificationStatus(healthLabel + " on " + host + ":" + assignedPort + " (" + state + ")");
+        notifyHealth(state, rpcHealthy, storageHealthy);
+    }
+
+    private void startStorageServer() throws IOException {
+        synchronized (lifecycleLock) {
+            if (isShuttingDown) {
+                return;
+            }
+            stopStorageServerLocked();
+            storageServer = new StorageServer(storagePort, storageDir);
+            storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+            Timber.tag(LOG_TAG).i("Storage server started on port %d serving %s", storagePort, storageDir.getAbsolutePath());
+        }
+    }
+
+    private void stopStorageServer() {
+        synchronized (lifecycleLock) {
+            stopStorageServerLocked();
+        }
+    }
+
+    private void stopStorageServerLocked() {
+        if (storageServer != null) {
+            try {
+                storageServer.stop();
+                Timber.tag(LOG_TAG).i("Storage server stopped");
+            } catch (Exception e) {
+                Timber.tag(LOG_TAG).w(e, "Error while stopping storage server");
+            } finally {
+                storageServer = null;
+            }
+        }
+    }
+
+    private void restartStorageServer() throws IOException {
+        synchronized (lifecycleLock) {
+            if (!isRunning || isShuttingDown) {
+                return;
+            }
+        }
+        startStorageServer();
+    }
+
+    private void startRpcProcess(int threads) throws IOException {
+        synchronized (lifecycleLock) {
+            if (isShuttingDown) {
+                return;
+            }
+            stopRpcProcessLocked();
+
+            Timber.tag(LOG_TAG).i("Starting RPC server process on %s:%d", host, assignedPort);
+            String executablePath = getApplicationInfo().nativeLibraryDir + "/librpc-server.so";
+            ProcessBuilder pb = new ProcessBuilder(
+                    executablePath,
+                    "0.0.0.0",
+                    String.valueOf(assignedPort),
+                    String.valueOf(threads),
+                    llamaCacheDir.getAbsolutePath()
+            );
+            pb.directory(getFilesDir());
+            Map<String, String> env = pb.environment();
+            env.put("HOME", getFilesDir().getAbsolutePath());
+            env.put("TMPDIR", getCacheDir().getAbsolutePath());
+            env.put("LLAMA_CACHE", llamaCacheDir.getAbsolutePath());
+            env.put("GGML_RPC_DEBUG", "1");
+            env.put("LD_LIBRARY_PATH", getApplicationInfo().nativeLibraryDir);
+            pb.redirectErrorStream(true);
+            Timber.tag(LOG_TAG).i("RPC process cwd=%s cache=%s", getFilesDir().getAbsolutePath(), llamaCacheDir.getAbsolutePath());
+            Timber.tag(LOG_TAG).d("RPC command: %s", pb.command());
+
+            Process startedProcess = pb.start();
+            rpcProcess = startedProcess;
+
+            rpcProcessLoggerThread = new Thread(() -> {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                String logTag = "LlamaRPC";
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(startedProcess.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        Timber.tag(logTag).d(line);
+                    }
+                } catch (IOException e) {
+                    Timber.tag(logTag).e(e, "Error reading process stream");
+                }
+            }, "rpc-process-logger");
+            rpcProcessLoggerThread.start();
+
+            rpcProcessWatcherThread = new Thread(() -> watchRpcProcess(startedProcess), "rpc-process-watcher");
+            rpcProcessWatcherThread.start();
+        }
+    }
+
+    private void watchRpcProcess(Process watchedProcess) {
+        try {
+            int exitCode = watchedProcess.waitFor();
+            Thread loggerThread = rpcProcessLoggerThread;
+            if (loggerThread != null) {
+                loggerThread.join(500);
+            }
+            synchronized (lifecycleLock) {
+                if (watchedProcess != rpcProcess) {
+                    Timber.tag(LOG_TAG).i("Ignoring exit from superseded RPC process with code %d", exitCode);
+                    return;
+                }
+                rpcProcess = null;
+                rpcProcessLoggerThread = null;
+                rpcProcessWatcherThread = null;
+                if (!isShuttingDown) {
+                    notifyState(UiState.CONNECTING);
+                    Timber.tag(LOG_TAG).w("RPC server process exited unexpectedly with code %d", exitCode);
+                    setLastHealthError("RPC server process exited unexpectedly with code " + exitCode);
+                    updateRuntimeState("recovering", false, lastStorageHealthy != null && lastStorageHealthy);
+                } else {
+                    Timber.tag(LOG_TAG).i("RPC server process exited during shutdown with code %d", exitCode);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Throwable t) {
+            Timber.tag(LOG_TAG).e(t, "RPC watcher crashed");
+        }
+    }
+
+    private void stopRpcProcess() {
+        synchronized (lifecycleLock) {
+            stopRpcProcessLocked();
+        }
+    }
+
+    private void stopRpcProcessLocked() {
+        Process process = rpcProcess;
+        rpcProcess = null;
+        rpcProcessLoggerThread = null;
+        rpcProcessWatcherThread = null;
+        if (process == null) {
+            return;
+        }
+
+        process.destroy();
+        try {
+            if (!process.waitFor(SHUTDOWN_WAIT_MS, TimeUnit.MILLISECONDS)) {
+                Timber.tag(LOG_TAG).w("RPC process did not exit after destroy(); forcing termination");
+                process.destroyForcibly();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            process.destroyForcibly();
+        }
+        Timber.tag(LOG_TAG).i("RPC process stopped");
+    }
+
+    private void restartRpcProcess(int threads) throws IOException {
+        synchronized (lifecycleLock) {
+            if (!isRunning || isShuttingDown) {
+                return;
+            }
+        }
+        startRpcProcess(threads);
+    }
+
+    private boolean isRpcHealthy() {
+        Process process;
+        synchronized (lifecycleLock) {
+            process = rpcProcess;
+        }
+        if (process == null || !process.isAlive()) {
+            return false;
+        }
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("127.0.0.1", assignedPort), HEALTH_CHECK_TIMEOUT_MS);
+            return true;
+        } catch (IOException e) {
+            Timber.tag(LOG_TAG).w(e, "RPC health check failed on port %d", assignedPort);
+            return false;
+        }
+    }
+
+    private boolean isStorageHealthy() {
+        URL url;
+        try {
+            url = new URL("http://127.0.0.1:" + storagePort + "/storage_info");
+        } catch (Exception e) {
+            Timber.tag(LOG_TAG).e(e, "Invalid storage health URL");
+            return false;
+        }
+
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(HEALTH_CHECK_TIMEOUT_MS);
+            conn.setReadTimeout(HEALTH_CHECK_TIMEOUT_MS);
+            int responseCode = conn.getResponseCode();
+            return responseCode == HttpURLConnection.HTTP_OK;
+        } catch (IOException e) {
+            Timber.tag(LOG_TAG).w(e, "Storage health check failed on port %d", storagePort);
+            return false;
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    private void shutdownService() {
+        synchronized (lifecycleLock) {
+            isRunning = false;
+            isShuttingDown = true;
+        }
+        stopForeground(true);
+        stopSelf();
     }
 
     private long estimateUsableMemoryBytes() {
@@ -379,21 +732,40 @@ public class ServerService extends Service {
         super.onDestroy();
         Timber.tag(LOG_TAG).i("Service destroyed. Requesting process stop...");
         notifyState(UiState.IDLE);
-        isRunning = false;
+        lastHealthError = "";
+        HealthSnapshot idleSnapshot = new HealthSnapshot("idle", "", false, false, false);
+        currentHealth = idleSnapshot;
+        HealthListener listener = healthListener;
+        if (listener != null) {
+            new Handler(Looper.getMainLooper()).post(() -> listener.onHealthChanged(idleSnapshot));
+        }
+        synchronized (lifecycleLock) {
+            isRunning = false;
+            isShuttingDown = true;
+        }
         if (discoveryThread != null) {
             discoveryThread.interrupt();
         }
-        if (rpcProcess != null) {
-            rpcProcess.destroy();
-        }
-        if (storageServer != null) {
-            storageServer.stop();
-        }
+        stopRpcProcess();
+        stopStorageServer();
+        stopForeground(true);
     }
 
     @Nullable
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    private void setLastHealthError(String message) {
+        lastHealthError = message == null ? "" : message.trim();
+    }
+
+    private static String describeError(Exception error, String fallback) {
+        String message = error.getMessage();
+        if (message == null || message.trim().isEmpty()) {
+            return fallback;
+        }
+        return fallback + ": " + message.trim();
     }
 }

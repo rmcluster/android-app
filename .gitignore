@@ -32,3 +32,6 @@ obj/
 *.swp
 *~
 .DS_Store
+
+.DerivedData*/
+.ipa*/

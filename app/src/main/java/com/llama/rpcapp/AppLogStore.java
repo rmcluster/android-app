@@ -43,7 +43,7 @@ public final class AppLogStore {
         listeners.remove(listener);
     }
 
-    public void append(int priority, String tag, String message, long timestampMs) {
+    public void append(int priority, String tag, String message, String category, long timestampMs) {
         String snapshot;
         ArrayList<Listener> listenersSnapshot;
 
@@ -56,7 +56,7 @@ public final class AppLogStore {
 
             String[] splitLines = message.split("\\r?\\n", -1);
             for (String line : splitLines) {
-                lines.addLast(new LogLine(timestampMs, formatLine(timestampMs, priorityToLevel(priority), tag, line)));
+                lines.addLast(new LogLine(timestampMs, formatLine(timestampMs, category, priorityToLevel(priority), tag, line)));
             }
 
             while (lines.size() > MAX_LINES) {
@@ -102,15 +102,23 @@ public final class AppLogStore {
         }
     }
 
-    public static String formatLine(long timestampMs, String level, String tag, String message) {
+    public static String formatLine(long timestampMs, String category, String level, String tag, String message) {
         StringBuilder out = new StringBuilder();
         out.append(TIMESTAMP_FORMAT.get().format(new Date(timestampMs)));
+        out.append(" [").append(normalizeCategory(category)).append("]");
         out.append(" [").append(level).append("]");
         if (tag != null && !tag.isEmpty()) {
             out.append(" ").append(tag).append(":");
         }
         out.append(" ").append(message == null ? "" : message);
         return out.toString();
+    }
+
+    private static String normalizeCategory(String category) {
+        if (category == null || category.trim().isEmpty()) {
+            return "GENERAL";
+        }
+        return category.trim().toUpperCase(Locale.US);
     }
 
     private static String priorityToLevel(int priority) {

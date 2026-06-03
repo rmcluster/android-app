@@ -6,12 +6,34 @@ import java.io.StringWriter;
 import timber.log.Timber;
 
 public final class AppLogTree extends Timber.DebugTree {
+    private static final String CATEGORY_RPC = "RPC";
+    private static final String CATEGORY_STORAGE = "STORAGE";
+    private static final String CATEGORY_GENERAL = "GENERAL";
+
     @Override
     protected void log(int priority, String tag, String message, Throwable t) {
         long now = System.currentTimeMillis();
         String renderedMessage = renderMessage(message, t);
-        AppLogStore.getInstance().append(priority, tag, renderedMessage, now);
-        super.log(priority, tag, AppLogStore.formatLine(now, priorityToLevel(priority), tag, renderedMessage), null);
+        String category = categoryForTag(tag);
+        String lineForLogcat = renderedMessage;
+        try {
+            AppLogStore.getInstance().append(priority, tag, renderedMessage, category, now);
+            lineForLogcat = AppLogStore.formatLine(now, category, priorityToLevel(priority), tag, renderedMessage);
+        } catch (Throwable storeFailure) {
+            lineForLogcat = renderedMessage;
+        }
+        super.log(priority, tag, lineForLogcat, null);
+    }
+
+    private static String categoryForTag(String tag) {
+        String normalizedTag = tag == null ? "" : tag.toLowerCase();
+        if (normalizedTag.contains("storage")) {
+            return CATEGORY_STORAGE;
+        }
+        if (normalizedTag.contains("rpc") || normalizedTag.contains("llama")) {
+            return CATEGORY_RPC;
+        }
+        return CATEGORY_GENERAL;
     }
 
     private static String renderMessage(String message, Throwable throwable) {
