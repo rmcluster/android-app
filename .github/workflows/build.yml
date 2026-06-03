@@ -49,10 +49,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: devel-${{ github.ref_name }}
-          name: Development Release ${{ github.ref_name }}
+          name: Development Release (${{ github.ref_name }})
           body: |
-            **Build Information**
-            - SHA: ${{ github.sha }}
-            - Branch: ${{ github.ref }}
-            - Triggered by: ${{ github.actor }}
+            Latest successful build for branch `${{ github.ref_name }}`.
+          prerelease: true
           files: app/build/outputs/apk/debug/app-debug.apk
