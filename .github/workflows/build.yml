@@ -48,8 +48,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: devel
-          name: Development Release
+          tag_name: devel-${{ github.ref_name }}
+          name: Development Release ${{ github.ref_name }}
           body: |
             **Build Information**
             - SHA: ${{ github.sha }}
