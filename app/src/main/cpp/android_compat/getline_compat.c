@@ -2,8 +2,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #if defined(__ANDROID__)
+
+__attribute__((used, visibility("default")))
+void android_set_abort_message(const char *msg) {
+    (void) msg;
+}
+
+void __wrap__Exit(int status) {
+    _exit(status);
+}
 
 ssize_t getdelim(char **lineptr, size_t *n, int delim, FILE *stream) {
     if (lineptr == NULL || n == NULL || stream == NULL) {

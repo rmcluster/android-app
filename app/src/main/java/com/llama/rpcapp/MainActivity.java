@@ -1,14 +1,10 @@
 package com.llama.rpcapp;
 
-import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
-import android.net.wifi.WifiInfo;
-import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,13 +19,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
-import com.google.mlkit.vision.barcode.common.Barcode;
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
 
@@ -114,12 +104,6 @@ public class MainActivity extends AppCompatActivity {
         settings = new SettingsRepository(this);
 
         formScroll = findViewById(R.id.formScroll);
-        int basePaddingTop = formScroll.getPaddingTop();
-        ViewCompat.setOnApplyWindowInsetsListener(formScroll, (v, insets) -> {
-            int sysTop = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top;
-            v.setPadding(v.getPaddingLeft(), basePaddingTop + sysTop, v.getPaddingRight(), v.getPaddingBottom());
-            return insets;
-        });
 
         tvLogs = findViewById(R.id.logTextView);
         tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
@@ -325,43 +309,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startQrScanner() {
-        clearScanTimeout();
-        scanTimedOut = false;
-
-        GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                .enableAutoZoom()
-                .build();
-
-        GmsBarcodeScanning.getClient(this, options)
-                .startScan()
-                .addOnSuccessListener(barcode -> {
-                    if (scanTimedOut) {
-                        return;
-                    }
-
-                    clearScanTimeout();
-                    if (barcode.getRawValue() != null) {
-                        parseUri(Uri.parse(barcode.getRawValue()));
-                    }
-                })
-                .addOnCanceledListener(this::clearScanTimeout)
-                .addOnFailureListener(e -> {
-                    if (scanTimedOut) {
-                        return;
-                    }
-
-                    Timber.tag(TAG).w(e, "Play Services scanner unavailable, falling back to ZXing");
-                    Toast.makeText(this, "Play Services scanner unavailable, using fallback scanner", Toast.LENGTH_LONG).show();
-                    startZxingScanner();
-                });
+        startZxingScanner();
     }
 
     private void startZxingScanner() {
         beginScanTimeout();
         Toast.makeText(this, "Using fallback scanner", Toast.LENGTH_SHORT).show();
         IntentIntegrator integrator = new IntentIntegrator(this);
-        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
+        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE_TYPES);
         integrator.setPrompt("Scan a cluster QR code");
         integrator.setCameraId(0);
         integrator.setBeepEnabled(true);
@@ -395,8 +350,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void startRpcService() {
         Intent serviceIntent = new Intent(this, ServerService.class);
-        ContextCompat.startForegroundService(this, serviceIntent);
-        setServerUiState(ServerService.UiState.CONNECTING);
+        startService(serviceIntent);
     }
 
     private void setServerUiState(ServerService.UiState state) {
@@ -405,17 +359,17 @@ public class MainActivity extends AppCompatActivity {
                 btnStart.setVisibility(View.VISIBLE);
                 btnStop.setVisibility(View.GONE);
                 break;
-            case CONNECTING:
+            case SEARCHING:
                 btnStart.setVisibility(View.GONE);
                 btnStop.setVisibility(View.VISIBLE);
                 btnStop.setText("CANCEL CONNECTION");
-                btnStop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFFF6D00));
+                styleStopButton(0xFFFF6D00);
                 break;
             case CONNECTED:
                 btnStart.setVisibility(View.GONE);
                 btnStop.setVisibility(View.VISIBLE);
                 btnStop.setText("DISCONNECT");
-                btnStop.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFFF5252));
+                styleStopButton(0xFFFF5252);
                 break;
         }
     }
@@ -508,7 +462,11 @@ public class MainActivity extends AppCompatActivity {
         button.setText(category.title);
         button.setTextColor(textColor);
         button.setBackground(createRoundedBackground(fillColor, outlineColor, outlineColor == Color.TRANSPARENT ? dpToPx(1) : dpToPx(3)));
-        button.setBackgroundTintList(null);
+    }
+
+    private void styleStopButton(int fillColor) {
+        btnStop.setBackground(createRoundedBackground(fillColor, Color.TRANSPARENT, 0));
+        btnStop.setTextColor(0xFFFFFFFF);
     }
 
     private int healthOutlineColor(LogCategory category, ServerService.HealthSnapshot snapshot) {

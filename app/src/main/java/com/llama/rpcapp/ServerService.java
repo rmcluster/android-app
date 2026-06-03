@@ -2,13 +2,11 @@ package com.llama.rpcapp;
 
 import android.app.ActivityManager;
 import android.app.Notification;
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ServiceInfo;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Handler;
@@ -39,8 +37,9 @@ public class ServerService extends Service {
     private static final int DEFAULT_PORT = 47671;
     private static final int HEALTH_CHECK_TIMEOUT_MS = 1500;
     private static final int RECOVERY_BACKOFF_MS = 2000;
-    private static final int STARTUP_GRACE_MS = 2000;
+    private static final int STARTUP_GRACE_MS = 5000;
     private static final int SHUTDOWN_WAIT_MS = 1000;
+    private static final int STARTUP_FAILURES_BEFORE_RESTART = 3;
 
     private final Object lifecycleLock = new Object();
 
@@ -59,12 +58,13 @@ public class ServerService extends Service {
     private volatile boolean isRunning = false;
     private volatile boolean isShuttingDown = false;
     private volatile boolean discoveryEnabled = false;
+    private volatile int startupHealthFailures = 0;
     private Boolean lastRpcHealthy = null;
     private Boolean lastStorageHealthy = null;
     private Boolean lastAnnounceEligible = null;
     private volatile String lastHealthError = "";
 
-    public enum UiState { IDLE, CONNECTING, CONNECTED }
+    public enum UiState { IDLE, SEARCHING, CONNECTED }
     public static volatile UiState currentState = UiState.IDLE;
 
     public static final class HealthSnapshot {
@@ -119,17 +119,30 @@ public class ServerService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel serviceChannel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "RPC Server Service Channel",
-                    NotificationManager.IMPORTANCE_LOW
-            );
-            serviceChannel.setDescription("Background node status updates");
-            serviceChannel.enableVibration(false);
-            serviceChannel.setShowBadge(false);
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(serviceChannel);
+        createNotificationChannelIfSupported();
+    }
+
+    private void createNotificationChannelIfSupported() {
+        if (Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+        try {
+            Class<?> channelClass = Class.forName("android.app.NotificationChannel");
+            Object serviceChannel = channelClass
+                    .getConstructor(String.class, CharSequence.class, int.class)
+                    .newInstance(CHANNEL_ID, "RPC Server Service Channel", 2);
+            channelClass.getMethod("setDescription", CharSequence.class)
+                    .invoke(serviceChannel, "Background node status updates");
+            channelClass.getMethod("enableVibration", boolean.class).invoke(serviceChannel, false);
+            channelClass.getMethod("setShowBadge", boolean.class).invoke(serviceChannel, false);
+            NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (manager != null) {
+                manager.getClass()
+                        .getMethod("createNotificationChannel", channelClass)
+                        .invoke(manager, serviceChannel);
+            }
+        } catch (Exception e) {
+            Timber.tag(LOG_TAG).w(e, "Failed to create notification channel");
         }
     }
 
@@ -142,6 +155,7 @@ public class ServerService extends Service {
             }
             isRunning = true;
             isShuttingDown = false;
+            startupHealthFailures = 0;
         }
 
         SettingsRepository settings = new SettingsRepository(this);
@@ -158,7 +172,7 @@ public class ServerService extends Service {
         assignedPort = findAvailablePort(DEFAULT_PORT);
         storagePort = findAvailablePort(assignedPort + 1);
         host = getLocalIpAddress();
-        notifyState(UiState.CONNECTING);
+        notifyState(UiState.IDLE);
 
         settings.saveConfig(new ServerConfig(
                 nodeId,
@@ -172,11 +186,7 @@ public class ServerService extends Service {
         ));
 
         Notification notification = buildNotification("Starting on " + host + ":" + assignedPort);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
-        }
+        startForeground(NOTIFICATION_ID, notification);
 
         try {
             storageDir = getStorageDirectory("StorageApp");
@@ -297,7 +307,7 @@ public class ServerService extends Service {
     }
 
     private void updateNotificationStatus(String contentText) {
-        NotificationManager manager = getSystemService(NotificationManager.class);
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager != null) {
             manager.notify(NOTIFICATION_ID, buildNotification(contentText));
         }
@@ -320,7 +330,7 @@ public class ServerService extends Service {
                 try {
                     boolean servicesHealthy = ensureServicesHealthy(threads);
                     if (!servicesHealthy) {
-                        notifyState(UiState.CONNECTING);
+                        notifyState(UiState.IDLE);
                         Timber.tag(LOG_TAG).w("Announce skipped, storage and/or inference unhealthy.");
                         Thread.sleep(RECOVERY_BACKOFF_MS);
                         continue;
@@ -333,7 +343,7 @@ public class ServerService extends Service {
                     String localIp = getLocalIpAddress();
 
                     if (!discoveryEnabled) {
-                        notifyState(UiState.CONNECTED);
+                        notifyState(UiState.IDLE);
                         updateRuntimeState("running", true, true);
                         Thread.sleep(RECOVERY_BACKOFF_MS);
                         continue;
@@ -363,7 +373,7 @@ public class ServerService extends Service {
                         conn.setReadTimeout(5000);
                         int responseCode = conn.getResponseCode();
                         if (responseCode != HttpURLConnection.HTTP_OK) {
-                            notifyState(UiState.CONNECTING);
+                            notifyState(UiState.SEARCHING);
                             Timber.tag(LOG_TAG).e("Failed to announce to tracker, response code: %d", responseCode);
                             setLastHealthError("Tracker responded with HTTP " + responseCode);
                             updateRuntimeState("degraded", true, true);
@@ -386,7 +396,7 @@ public class ServerService extends Service {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
-                    notifyState(UiState.CONNECTING);
+                    notifyState(discoveryEnabled ? UiState.SEARCHING : UiState.IDLE);
                     Timber.tag(LOG_TAG).e(e, "Error in discovery thread");
                     setLastHealthError(describeError(e, "Discovery loop error"));
                     updateRuntimeState("unavailable", isRpcHealthy(), isStorageHealthy());
@@ -405,6 +415,21 @@ public class ServerService extends Service {
     private boolean ensureServicesHealthy(int threads) {
         boolean rpcHealthy = isRpcHealthy();
         boolean storageHealthy = isStorageHealthy();
+
+        if (rpcHealthy && storageHealthy) {
+            startupHealthFailures = 0;
+        } else if (startupHealthFailures < STARTUP_FAILURES_BEFORE_RESTART) {
+            startupHealthFailures++;
+            Timber.tag(LOG_TAG).i(
+                    "Startup grace health miss %d/%d rpc=%s storage=%s",
+                    startupHealthFailures,
+                    STARTUP_FAILURES_BEFORE_RESTART,
+                    rpcHealthy ? "healthy" : "unhealthy",
+                    storageHealthy ? "healthy" : "unhealthy"
+            );
+            updateRuntimeState("starting", rpcHealthy, storageHealthy);
+            return false;
+        }
 
         if (!rpcHealthy) {
             Timber.tag(LOG_TAG).w("RPC unhealthy; attempting restart on port %d", assignedPort);
@@ -434,6 +459,7 @@ public class ServerService extends Service {
             }
         }
 
+        startupHealthFailures = 0;
         updateRuntimeState(rpcHealthy && storageHealthy ? "running" : "recovering", rpcHealthy, storageHealthy);
         return rpcHealthy && storageHealthy;
     }
@@ -526,7 +552,8 @@ public class ServerService extends Service {
             stopRpcProcessLocked();
 
             Timber.tag(LOG_TAG).i("Starting RPC server process on %s:%d", host, assignedPort);
-            String executablePath = getApplicationInfo().nativeLibraryDir + "/librpc-server.so";
+            String libDir = getApplicationInfo().nativeLibraryDir;
+            String executablePath = libDir + "/librpc-server.so";
             ProcessBuilder pb = new ProcessBuilder(
                     executablePath,
                     "0.0.0.0",
@@ -540,7 +567,7 @@ public class ServerService extends Service {
             env.put("TMPDIR", getCacheDir().getAbsolutePath());
             env.put("LLAMA_CACHE", llamaCacheDir.getAbsolutePath());
             env.put("GGML_RPC_DEBUG", "1");
-            env.put("LD_LIBRARY_PATH", getApplicationInfo().nativeLibraryDir);
+            env.put("LD_LIBRARY_PATH", libDir);
             pb.redirectErrorStream(true);
             Timber.tag(LOG_TAG).i("RPC process cwd=%s cache=%s", getFilesDir().getAbsolutePath(), llamaCacheDir.getAbsolutePath());
             Timber.tag(LOG_TAG).d("RPC command: %s", pb.command());
@@ -583,7 +610,7 @@ public class ServerService extends Service {
                 rpcProcessLoggerThread = null;
                 rpcProcessWatcherThread = null;
                 if (!isShuttingDown) {
-                    notifyState(UiState.CONNECTING);
+                    notifyState(discoveryEnabled ? UiState.SEARCHING : UiState.IDLE);
                     Timber.tag(LOG_TAG).w("RPC server process exited unexpectedly with code %d", exitCode);
                     setLastHealthError("RPC server process exited unexpectedly with code " + exitCode);
                     updateRuntimeState("recovering", false, lastStorageHealthy != null && lastStorageHealthy);

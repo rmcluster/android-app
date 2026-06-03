@@ -2,6 +2,7 @@ name: Build Android App
 
 on:
   push:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,10 +15,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
           cache: gradle
 
@@ -26,19 +27,26 @@ jobs:
         with:
           packages: ''
 
-      - name: Install Android SDK components
+      - name: Install Android SDK components (Jelly Bean / API 16)
         run: |
-          yes | sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;25.2.9519653" "cmake;3.22.1"
+          yes | sdkmanager --install \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;21.4.7075529" \
+            "cmake;3.22.1"
+
+      - name: Apply ggml API 16 patches
+        run: git -C llama.cpp-rpc apply --check patches/ggml-android-api16.patch && git -C llama.cpp-rpc apply patches/ggml-android-api16.patch
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build debug APK
         run: ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload Jelly Bean debug APK
         uses: actions/upload-artifact@v7
         with:
-          name: app-debug
+          name: app-jellybean-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           archive: false

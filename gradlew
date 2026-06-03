@@ -83,6 +83,21 @@ esac
 CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
 
+# Android Gradle Plugin requires JDK 17-21. JDK 22+ fails with an opaque "25.0.1" error.
+if [ "$(uname -s)" = "Darwin" ] && [ -x /usr/libexec/java_home ]; then
+    JAVA_21_HOME=$(/usr/libexec/java_home -v 21 2>/dev/null)
+    if [ -n "$JAVA_21_HOME" ]; then
+        if [ -z "$JAVA_HOME" ]; then
+            export JAVA_HOME="$JAVA_21_HOME"
+        else
+            JAVA_MAJOR=$("$JAVA_HOME/bin/java" -version 2>&1 | sed -n 's/.* version "\([0-9][0-9]*\).*/\1/p' | head -1)
+            if [ -n "$JAVA_MAJOR" ] && [ "$JAVA_MAJOR" -gt 21 ] 2>/dev/null; then
+                export JAVA_HOME="$JAVA_21_HOME"
+            fi
+        fi
+    fi
+fi
+
 # Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then
     if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
