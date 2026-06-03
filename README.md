@@ -6,7 +6,7 @@ Runs discovery thread to ping the server on regular intervals (health + availabi
 
 To install, follow these steps on the device you want to add to the cluster:
 
-* [Download the latest APK](https://github.com/rmcluster/android-app/releases/download/devel/app-debug.apk)
+* [Download the latest APK](https://github.com/rmcluster/android-app/releases/download/devel-main/app-debug.apk)
 * Install the APK
 
 ## Build and Install Instructions
