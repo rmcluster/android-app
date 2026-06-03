@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("llama-rpc" VERSION 1.0.0 LANGUAGES C CXX)
 
-set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../../llama.cpp-rpc)
+set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp-rpc)
 
 # llama.cpp options
 set(GGML_RPC ON CACHE BOOL "ggml: RPC backend" FORCE)
