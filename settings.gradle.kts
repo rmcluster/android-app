@@ -15,4 +15,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "AiChat"
 include(":app")
-include(":lib")

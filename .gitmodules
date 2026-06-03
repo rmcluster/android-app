@@ -1,0 +1,3 @@
+[submodule "llama.cpp-rpc"]
+	path = llama.cpp-rpc
+	url = https://github.com/rmcluster/llama.cpp-rpc.git

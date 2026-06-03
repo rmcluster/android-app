@@ -78,6 +78,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.play.services.code.scanner)
+    implementation("com.jakewharton.timber:timber:5.0.1")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.4.1")
