@@ -22,6 +22,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayDeque;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.MessageDigest;
@@ -40,6 +42,13 @@ public class StorageServerTest {
     public void setUp() throws Exception {
         storageDir = temporaryFolder.newFolder("storage");
         server = new TestStorageServer(8080, storageDir);
+        clearLogStore();
+    }
+
+    private static void clearLogStore() throws Exception {
+        Field lines = AppLogStore.class.getDeclaredField("lines");
+        lines.setAccessible(true);
+        ((ArrayDeque<?>) lines.get(AppLogStore.getInstance())).clear();
     }
 
     @Test
@@ -372,6 +381,77 @@ public class StorageServerTest {
         JSONObject json = new JSONObject(responseBody(response));
         assertEquals("healthy", json.getString("status"));
         assertEquals(0, json.getJSONArray("bad_chunks").length());
+    }
+
+    @Test
+    public void serve_logs_rejectsNonGetMethods() throws Exception {
+        NanoHTTPD.Response response = server.serve(session("/logs", NanoHTTPD.Method.POST));
+
+        assertEquals(404, response.getStatus().getRequestStatus());
+    }
+
+    @Test
+    public void serve_logs_returnsSnapshotText() throws Exception {
+        AppLogStore.getInstance().append(4, "StorageServer", "hello-log", "storage", System.currentTimeMillis());
+
+        NanoHTTPD.Response response = server.serve(session("/logs", NanoHTTPD.Method.GET));
+
+        assertEquals(200, response.getStatus().getRequestStatus());
+        assertTrue(responseBody(response).contains("hello-log"));
+    }
+
+    @Test
+    public void renameFile_movesFileWithinStorageDirectory() throws Exception {
+        StorageServer baseServer = new StorageServer(8080, storageDir);
+        File source = new File(storageDir, "source.bin");
+        Files.write(source.toPath(), bytes("move-me"));
+        File target = new File(storageDir, "target.bin");
+
+        assertTrue(baseServer.renameFile(source, target));
+        assertTrue(target.exists());
+        assertFalse(source.exists());
+    }
+
+    @Test
+    public void moveChunkIntoPlace_usesRenameWithoutCopying() throws Exception {
+        StorageServer baseServer = new StorageServer(8080, storageDir);
+        File tempFile = baseServer.createTempFile();
+        Files.write(tempFile.toPath(), bytes("payload"));
+        File targetFile = new File(storageDir, "moved.bin");
+
+        baseServer.moveChunkIntoPlace(tempFile, targetFile);
+
+        assertTrue(targetFile.exists());
+        assertFalse(tempFile.exists());
+    }
+
+    @Test
+    public void putChunk_copiesWhenRenameToFails() throws Exception {
+        byte[] body = bytes("payload");
+        String chunkId = sha256(body);
+        server.failRename = true;
+
+        NanoHTTPD.Response response = server.serve(putSession("/chunk/" + chunkId, body));
+
+        assertEquals(200, response.getStatus().getRequestStatus());
+        assertTrue(new File(storageDir, chunkId).exists());
+    }
+
+    @Test
+    public void listChunks_handlesNullDirectoryListing() throws Exception {
+        File fileStorage = temporaryFolder.newFile("not-a-directory");
+        StorageServer fileServer = new StorageServer(8080, fileStorage);
+
+        NanoHTTPD.Response response = fileServer.serve(session("/chunks/list", NanoHTTPD.Method.GET));
+
+        assertEquals(0, new JSONArray(responseBody(response)).length());
+    }
+
+    @Test
+    public void humanBytes_formatsNegativeValues() throws Exception {
+        Method method = StorageServer.class.getDeclaredMethod("humanBytes", long.class);
+        method.setAccessible(true);
+        assertEquals("-1B", method.invoke(null, -1L));
     }
 
     @Test

@@ -2,7 +2,6 @@ package com.llama.rpcapp;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Activity;
@@ -37,6 +36,7 @@ public class MainActivityTest {
 
     @Before
     public void setUp() {
+        ServerService.currentState = ServerService.UiState.IDLE;
         ApplicationProvider.getApplicationContext()
                 .getSharedPreferences("rpc_server_settings", Activity.MODE_PRIVATE)
                 .edit()
@@ -47,62 +47,70 @@ public class MainActivityTest {
 
     @Test
     public void onCreate_loadsSavedSettingsIntoViews() {
-        repository.saveConfig(new ServerConfig("node-a", "192.168.0.4", 7000, 7001, "tracker", 7002, "token", 9));
+        repository.saveConfig(new ServerConfig("node-a", 7000, 7001, "tracker", 7002, "token", "worker-a", 9));
 
         MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
 
-        assertEquals("192.168.0.4", text(activity, R.id.etHost));
-        assertEquals("7000", text(activity, R.id.etPort));
-        assertEquals("7001", text(activity, R.id.etStoragePort));
         assertEquals("tracker", text(activity, R.id.etDiscoveryIp));
         assertEquals("7002", text(activity, R.id.etDiscoveryPort));
+        assertEquals("worker-a", text(activity, R.id.etNickname));
         assertEquals("9", text(activity, R.id.etThreads));
-        assertTrue(((TextView) activity.findViewById(R.id.tvIpAddress)).getText().toString().startsWith("IP Address: "));
     }
 
     @Test
-    public void onResume_refreshesPortsFromSavedConfig() {
+    public void onResume_appliesCurrentServerState() {
+        ServerService.currentState = ServerService.UiState.CONNECTED;
         ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup();
-        MainActivity activity = controller.get();
-
-        repository.saveConfig(new ServerConfig("node-b", "0.0.0.0", 8000, 8001, "", 4917, "", 4));
 
         controller.pause().resume();
 
-        assertEquals("8000", text(activity, R.id.etPort));
-        assertEquals("8001", text(activity, R.id.etStoragePort));
+        MainActivity activity = controller.get();
+        assertEquals(View.GONE, activity.findViewById(R.id.btnStart).getVisibility());
+        assertEquals(View.VISIBLE, activity.findViewById(R.id.btnStop).getVisibility());
+        assertEquals("DISCONNECT", ((Button) activity.findViewById(R.id.btnStop)).getText().toString());
     }
 
     @Test
-    public void parseUri_withValidConnection_updatesFieldsAndPersistsToken() throws Exception {
+    public void applyConnectionLink_withValidConnection_updatesFieldsAndPersistsToken() throws Exception {
         MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
 
-        invoke(activity, "parseUri", new Class<?>[]{Uri.class}, Uri.parse("rmcluster://connect?url=tracker.local&port=4917&token=abc123"));
+        boolean applied = (Boolean) invoke(
+                activity,
+                "applyConnectionLink",
+                new Class<?>[]{Uri.class},
+                Uri.parse("rmcluster://connect?url=tracker.local&port=4917&token=abc123")
+        );
 
+        assertTrue(applied);
         assertEquals("tracker.local", text(activity, R.id.etDiscoveryIp));
         assertEquals("4917", text(activity, R.id.etDiscoveryPort));
-        assertEquals("Connected to: tracker.local:4917", ShadowToast.getTextOfLatestToast());
-        assertEquals("abc123", repository.loadConfig().discoveryToken);
+        assertEquals("Coordinator: tracker.local:4917", text(activity, R.id.tvConnectionStatus));
     }
 
     @Test
-    public void parseUri_withInvalidConnectionShowsToast() throws Exception {
+    public void applyConnectionLink_withInvalidConnectionShowsStatus() throws Exception {
         MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
 
-        invoke(activity, "parseUri", new Class<?>[]{Uri.class}, Uri.parse("https://example.com"));
+        boolean applied = (Boolean) invoke(
+                activity,
+                "applyConnectionLink",
+                new Class<?>[]{Uri.class},
+                Uri.parse("https://example.com")
+        );
 
-        assertEquals("QR code is not a cluster connection code", ShadowToast.getTextOfLatestToast());
+        assertFalse(applied);
+        assertEquals("Not a valid rmcluster:// link", text(activity, R.id.tvConnectionStatus));
     }
 
     @Test
     public void saveSettings_withInvalidNumbersLeavesPreviousConfigIntact() throws Exception {
-        repository.saveConfig(new ServerConfig("node-c", "1.1.1.1", 1234, 1235, "tracker", 4917, "token", 2));
+        repository.saveConfig(new ServerConfig("node-c", 1234, 1235, "tracker", 4917, "token", "nick", 2));
         MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
-        ((EditText) activity.findViewById(R.id.etPort)).setText("abc");
+        ((EditText) activity.findViewById(R.id.etThreads)).setText("abc");
 
         invoke(activity, "saveSettings", new Class<?>[0]);
 
-        assertEquals(1234, repository.loadConfig().port);
+        assertEquals(2, repository.loadConfig().threads);
     }
 
     @Test
@@ -113,21 +121,20 @@ public class MainActivityTest {
 
         Button start = activity.findViewById(R.id.btnStart);
         Button stop = activity.findViewById(R.id.btnStop);
-        assertFalse(start.isEnabled());
-        assertEquals("SERVER RUNNING", start.getText().toString());
+        assertEquals(View.GONE, start.getVisibility());
         assertEquals(View.VISIBLE, stop.getVisibility());
+        assertEquals("CANCEL CONNECTION", stop.getText().toString());
     }
 
     @Test
-    public void setServerUiState_falseRestoresStoppedUi() throws Exception {
+    public void setServerUiState_idleRestoresStoppedUi() throws Exception {
         MainActivity activity = Robolectric.buildActivity(MainActivity.class).setup().get();
 
-        invoke(activity, "setServerUiState", new Class<?>[]{boolean.class}, false);
+        invoke(activity, "setServerUiState", new Class<?>[]{ServerService.UiState.class}, ServerService.UiState.IDLE);
 
         Button start = activity.findViewById(R.id.btnStart);
         Button stop = activity.findViewById(R.id.btnStop);
-        assertTrue(start.isEnabled());
-        assertEquals("START SERVER", start.getText().toString());
+        assertEquals(View.VISIBLE, start.getVisibility());
         assertEquals(View.GONE, stop.getVisibility());
     }
 

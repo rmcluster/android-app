@@ -30,7 +30,7 @@ public final class AppLogTree extends Timber.DebugTree {
         if (normalizedTag.contains("storage")) {
             return CATEGORY_STORAGE;
         }
-        if (normalizedTag.contains("rpc") || normalizedTag.contains("llama")) {
+        if (normalizedTag.contains("rpc") || normalizedTag.contains("llama") || normalizedTag.contains("ggml")) {
             return CATEGORY_RPC;
         }
         return CATEGORY_GENERAL;

@@ -2,12 +2,14 @@ package com.llama.rpcapp;
 
 import android.content.Context;
 import android.content.SharedPreferences; //apply() writes to disk (xml file)
+import android.content.pm.ApplicationInfo;
 
 import java.util.Map;
 import java.util.UUID;
 
 public class SettingsRepository {
     private static final String PREF_NAME = "rpc_server_settings";
+    private static final String KEY_VERBOSE_RPC_LOGGING = "verbose_rpc_logging";
     private static final String KEY_THREADS = "threads";
     private static final String KEY_DISCOVERY_IP = "discovery_ip";
     private static final String KEY_DISCOVERY_PORT = "discovery_port";
@@ -18,9 +20,11 @@ public class SettingsRepository {
     private static final String NODE_ID = "node_id";
 
     private final SharedPreferences prefs;
+    private final Context appContext;
 
     public SettingsRepository(Context context) {
-        this.prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        this.appContext = context.getApplicationContext();
+        this.prefs = appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
     }
 
     public ServerConfig loadConfig() {
@@ -88,5 +92,20 @@ public class SettingsRepository {
                 .putString(KEY_NICKNAME, config.nickname)
                 .putInt(KEY_THREADS, config.threads)
                 .apply();
+    }
+
+    public boolean isVerboseRpcLogging() {
+        if (!prefs.contains(KEY_VERBOSE_RPC_LOGGING)) {
+            return isDebuggableBuild();
+        }
+        return prefs.getBoolean(KEY_VERBOSE_RPC_LOGGING, false);
+    }
+
+    private boolean isDebuggableBuild() {
+        return (appContext.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+
+    public void setVerboseRpcLogging(boolean enabled) {
+        prefs.edit().putBoolean(KEY_VERBOSE_RPC_LOGGING, enabled).apply();
     }
 }

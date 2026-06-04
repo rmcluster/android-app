@@ -46,12 +46,16 @@ android {
     }
 
     buildTypes {
+        debug {
+            enableUnitTestCoverage = true
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -88,6 +92,7 @@ dependencies {
     implementation(libs.play.services.code.scanner)
     implementation("com.jakewharton.timber:timber:5.0.1")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.4.1")
 
@@ -102,6 +107,13 @@ jacoco {
     toolVersion = "0.8.12"
 }
 
+tasks.withType<Test> {
+    configure<JacocoTaskExtension> {
+        isIncludeNoLocationClasses = true
+        excludes = listOf("jdk.internal.*")
+    }
+}
+
 tasks.register<JacocoReport>("jacocoTestReport") {
     dependsOn("testDebugUnitTest")
 
@@ -110,9 +122,9 @@ tasks.register<JacocoReport>("jacocoTestReport") {
         "**/R$*.class",
         "**/BuildConfig.*",
         "**/Manifest*.*",
-        "**/MainActivity.*",
-        "**/NativeRpcServer.*",
-        "**/ServerService.*"
+        "**/MainActivity*",
+        "**/NativeRpcServer*",
+        "**/ServerService*"
     )
 
     reports {
@@ -147,4 +159,25 @@ tasks.register<JacocoReport>("jacocoTestReport") {
             )
         }
     )
+}
+
+tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+    dependsOn("jacocoTestReport")
+
+    violationRules {
+        rule {
+            limit {
+                counter = "INSTRUCTION"
+                minimum = "1.0".toBigDecimal()
+            }
+            limit {
+                counter = "BRANCH"
+                minimum = "1.0".toBigDecimal()
+            }
+        }
+    }
+
+    val reportTask = tasks.named<JacocoReport>("jacocoTestReport")
+    classDirectories.setFrom(reportTask.get().classDirectories)
+    executionData.setFrom(reportTask.get().executionData)
 }

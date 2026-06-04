@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 import timber.log.Timber;
@@ -31,6 +32,12 @@ public class StorageServer extends NanoHTTPD {
     }
 
     private volatile StorageHealth storageHealth;
+    private final AtomicInteger activeRequestCount = new AtomicInteger(0);
+
+    /** True while at least one HTTP request is being handled (chunk transfer, scan, etc.). */
+    public boolean isBusy() {
+        return activeRequestCount.get() > 0;
+    }
 
     //new custom status
     private static final Response.IStatus INSUFFICIENT_STORAGE = new Response.IStatus() {
@@ -82,6 +89,15 @@ public class StorageServer extends NanoHTTPD {
     */
     @Override
     public Response serve(IHTTPSession session) {
+        activeRequestCount.incrementAndGet();
+        try {
+            return serveRequest(session);
+        } finally {
+            activeRequestCount.decrementAndGet();
+        }
+    }
+
+    private Response serveRequest(IHTTPSession session) {
         String uri = session.getUri();
         Method method = session.getMethod();
         Timber.tag(TAG).d("Request: %s %s", method, uri);
@@ -150,7 +166,7 @@ public class StorageServer extends NanoHTTPD {
         }
         Timber.tag(TAG).d("PUT chunk %s headers=%s", chunkId, session.getHeaders());
 
-        long remainingBytes = storageDir.getUsableSpace() - contentLength;
+        long remainingBytes = getUsableSpace() - contentLength;
         Timber.tag(TAG).i("Receiving chunk %s into %s (%s, usable after write %s)",
                 chunkId,
                 storageDir.getAbsolutePath(),
@@ -160,7 +176,7 @@ public class StorageServer extends NanoHTTPD {
         if (remainingBytes < 50 * 1024 * 1024) {
             Timber.tag(TAG).e("Rejecting chunk %s because storage would fall below reserve: usable=%s content=%s",
                     chunkId,
-                    humanBytes(storageDir.getUsableSpace()),
+                    humanBytes(getUsableSpace()),
                     humanBytes(contentLength));
             return jsonResponse(INSUFFICIENT_STORAGE, new JSONObject().put("error", "insufficient_storage"));
         }
@@ -200,7 +216,7 @@ public class StorageServer extends NanoHTTPD {
         }
 
         File targetFile = new File(storageDir, chunkId);
-        if (!tempFile.renameTo(targetFile)) {
+        if (!renameFile(tempFile, targetFile)) {
             Timber.tag(TAG).w("Rename failed for %s -> %s, copying instead", tempFile.getAbsolutePath(), targetFile.getAbsolutePath());
             copyFile(tempFile, targetFile);
             tempFile.delete();

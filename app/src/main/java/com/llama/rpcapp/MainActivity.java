@@ -17,12 +17,14 @@ import android.text.TextWatcher;
 import android.text.format.Formatter;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -54,7 +56,8 @@ public class MainActivity extends AppCompatActivity {
     private final ServerService.HealthListener healthListener = snapshot ->
             runOnUiThread(() -> updateHealthSummary(snapshot));
 
-    private TextView tvLogs, tvConnectionStatus, tvLogHealthError;
+    private TextView tvLogs, tvConnectionStatus, tvLogHealthStatus, tvLogHealthError;
+    private SwitchCompat switchVerboseRpcLogging;
     private ScrollView logScrollView;
     private View formScroll;
     private View logsPanel;
@@ -96,7 +99,10 @@ public class MainActivity extends AppCompatActivity {
             if (normalized.contains("[storage]")) {
                 return STORAGE;
             }
-            if (normalized.contains("[rpc]")) {
+            if (normalized.contains("[rpc]")
+                    || normalized.contains("[ggml]")
+                    || normalized.contains("llamarpc")
+                    || normalized.contains("rpc server")) {
                 return RPC;
             }
             if (normalized.contains("[general]")) {
@@ -123,7 +129,9 @@ public class MainActivity extends AppCompatActivity {
 
         tvLogs = findViewById(R.id.logTextView);
         tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
+        tvLogHealthStatus = findViewById(R.id.tvLogHealthStatus);
         tvLogHealthError = findViewById(R.id.tvLogHealthError);
+        switchVerboseRpcLogging = findViewById(R.id.switchVerboseRpcLogging);
         logScrollView = findViewById(R.id.logScrollView);
         logsPanel = findViewById(R.id.logsPanel);
         etDiscoveryIp = findViewById(R.id.etDiscoveryIp);
@@ -150,6 +158,9 @@ public class MainActivity extends AppCompatActivity {
         configureLogFilterButton(btnFilterGeneral, LogCategory.GENERAL);
         updateFilterButtons();
         updateHealthSummary(currentHealth);
+
+        switchVerboseRpcLogging.setChecked(settings.isVerboseRpcLogging());
+        switchVerboseRpcLogging.setOnCheckedChangeListener(this::onVerboseRpcLoggingChanged);
 
         logScrollView.getViewTreeObserver().addOnScrollChangedListener(this::updateAutoScrollState);
 
@@ -263,6 +274,29 @@ public class MainActivity extends AppCompatActivity {
         discoveryToken = config.discoveryToken;
         etNickname.setText(config.nickname);
         etThreads.setText(String.valueOf(config.threads));
+        if (switchVerboseRpcLogging != null) {
+            switchVerboseRpcLogging.setOnCheckedChangeListener(null);
+            switchVerboseRpcLogging.setChecked(settings.isVerboseRpcLogging());
+            switchVerboseRpcLogging.setOnCheckedChangeListener(this::onVerboseRpcLoggingChanged);
+        }
+    }
+
+    private void onVerboseRpcLoggingChanged(CompoundButton button, boolean isChecked) {
+        settings.setVerboseRpcLogging(isChecked);
+        AppLogStore.getInstance().append(
+                android.util.Log.INFO,
+                "RPC SERVER",
+                isChecked
+                        ? "rpc.logging.verbose_enabled (GGML + RPC wire debug; reconnect to cluster to apply)"
+                        : "rpc.logging.verbose_disabled",
+                "RPC",
+                System.currentTimeMillis());
+        if (ServerService.currentState != ServerService.UiState.IDLE) {
+            Toast.makeText(
+                    this,
+                    "Reconnect to cluster to apply verbose RPC logging",
+                    Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void saveSettings() {
@@ -491,6 +525,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateHealthSummary(ServerService.HealthSnapshot snapshot) {
         currentHealth = snapshot;
+        String status = snapshot.status == null ? "idle" : snapshot.status.trim();
+        if (status.isEmpty()) {
+            status = "idle";
+        }
+        tvLogHealthStatus.setText(capitalizeStatus(status));
+
         String lastError = snapshot.lastError == null ? "" : snapshot.lastError.trim();
         if (lastError.isEmpty()) {
             tvLogHealthError.setVisibility(View.GONE);
@@ -500,6 +540,13 @@ public class MainActivity extends AppCompatActivity {
         }
 
         updateFilterButtons();
+    }
+
+    private static String capitalizeStatus(String status) {
+        if (status.length() <= 1) {
+            return status.toUpperCase(Locale.US);
+        }
+        return status.substring(0, 1).toUpperCase(Locale.US) + status.substring(1);
     }
 
     private void styleFilterButton(Button button, LogCategory category, boolean isActive, int outlineColor) {
@@ -534,7 +581,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean showsHealthOutline(String status) {
-        return "running".equals(status)
+        return "starting".equals(status)
+                || "running".equals(status)
                 || "recovering".equals(status)
                 || "degraded".equals(status)
                 || "unavailable".equals(status);
