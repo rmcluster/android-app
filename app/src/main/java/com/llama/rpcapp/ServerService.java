@@ -133,8 +133,10 @@ public class ServerService extends Service {
             serviceChannel.setDescription("Background node status updates");
             serviceChannel.enableVibration(false);
             serviceChannel.setShowBadge(false);
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(serviceChannel);
+            NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (manager != null) {
+                manager.createNotificationChannel(serviceChannel);
+            }
         }
     }
 
@@ -302,7 +304,7 @@ public class ServerService extends Service {
     }
 
     private void updateNotificationStatus(String contentText) {
-        NotificationManager manager = getSystemService(NotificationManager.class);
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager != null) {
             manager.notify(NOTIFICATION_ID, buildNotification(contentText));
         }
