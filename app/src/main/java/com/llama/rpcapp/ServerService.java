@@ -2,11 +2,13 @@ package com.llama.rpcapp;
 
 import android.app.ActivityManager;
 import android.app.Notification;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ServiceInfo;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Handler;
@@ -19,7 +21,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.Map;
@@ -36,10 +37,11 @@ public class ServerService extends Service {
     private static final int NOTIFICATION_ID = 1;
     private static final int DEFAULT_PORT = 47671;
     private static final int HEALTH_CHECK_TIMEOUT_MS = 1500;
-    private static final int RECOVERY_BACKOFF_MS = 2000;
-    private static final int STARTUP_GRACE_MS = 5000;
+    private static final int HEALTH_CHECK_INTERVAL_MS = 10_000;
+    private static final int HEALTH_CHECK_FAILURE_THRESHOLD = 3;
+    private static final int DISCOVERY_START_DELAY_MS = 5000;
+    private static final int STARTUP_GRACE_MS = 2000;
     private static final int SHUTDOWN_WAIT_MS = 1000;
-    private static final int STARTUP_FAILURES_BEFORE_RESTART = 3;
 
     private final Object lifecycleLock = new Object();
 
@@ -58,11 +60,14 @@ public class ServerService extends Service {
     private volatile boolean isRunning = false;
     private volatile boolean isShuttingDown = false;
     private volatile boolean discoveryEnabled = false;
-    private volatile int startupHealthFailures = 0;
     private Boolean lastRpcHealthy = null;
     private Boolean lastStorageHealthy = null;
     private Boolean lastAnnounceEligible = null;
     private volatile String lastHealthError = "";
+    private int consecutiveStorageProbeFailures = 0;
+    private int consecutiveRpcProbeFailures = 0;
+    private long storageStartedAtMs = 0L;
+    private long rpcStartedAtMs = 0L;
 
     public enum UiState { IDLE, SEARCHING, CONNECTED }
     public static volatile UiState currentState = UiState.IDLE;
@@ -119,30 +124,17 @@ public class ServerService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        createNotificationChannelIfSupported();
-    }
-
-    private void createNotificationChannelIfSupported() {
-        if (Build.VERSION.SDK_INT < 26) {
-            return;
-        }
-        try {
-            Class<?> channelClass = Class.forName("android.app.NotificationChannel");
-            Object serviceChannel = channelClass
-                    .getConstructor(String.class, CharSequence.class, int.class)
-                    .newInstance(CHANNEL_ID, "RPC Server Service Channel", 2);
-            channelClass.getMethod("setDescription", CharSequence.class)
-                    .invoke(serviceChannel, "Background node status updates");
-            channelClass.getMethod("enableVibration", boolean.class).invoke(serviceChannel, false);
-            channelClass.getMethod("setShowBadge", boolean.class).invoke(serviceChannel, false);
-            NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (manager != null) {
-                manager.getClass()
-                        .getMethod("createNotificationChannel", channelClass)
-                        .invoke(manager, serviceChannel);
-            }
-        } catch (Exception e) {
-            Timber.tag(LOG_TAG).w(e, "Failed to create notification channel");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "RPC Server Service Channel",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            serviceChannel.setDescription("Background node status updates");
+            serviceChannel.enableVibration(false);
+            serviceChannel.setShowBadge(false);
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(serviceChannel);
         }
     }
 
@@ -155,7 +147,6 @@ public class ServerService extends Service {
             }
             isRunning = true;
             isShuttingDown = false;
-            startupHealthFailures = 0;
         }
 
         SettingsRepository settings = new SettingsRepository(this);
@@ -186,7 +177,11 @@ public class ServerService extends Service {
         ));
 
         Notification notification = buildNotification("Starting on " + host + ":" + assignedPort);
-        startForeground(NOTIFICATION_ID, notification);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
 
         try {
             storageDir = getStorageDirectory("StorageApp");
@@ -307,7 +302,7 @@ public class ServerService extends Service {
     }
 
     private void updateNotificationStatus(String contentText) {
-        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.notify(NOTIFICATION_ID, buildNotification(contentText));
         }
@@ -316,7 +311,7 @@ public class ServerService extends Service {
     private void startDiscoveryPing(String targetIp, int targetPort, String discoveryToken, String nickname, String nodeId, int threads) {
         discoveryThread = new Thread(() -> {
             try {
-                Thread.sleep(STARTUP_GRACE_MS);
+                Thread.sleep(DISCOVERY_START_DELAY_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
@@ -332,7 +327,7 @@ public class ServerService extends Service {
                     if (!servicesHealthy) {
                         notifyState(UiState.IDLE);
                         Timber.tag(LOG_TAG).w("Announce skipped, storage and/or inference unhealthy.");
-                        Thread.sleep(RECOVERY_BACKOFF_MS);
+                        Thread.sleep(HEALTH_CHECK_INTERVAL_MS);
                         continue;
                     }
 
@@ -345,7 +340,7 @@ public class ServerService extends Service {
                     if (!discoveryEnabled) {
                         notifyState(UiState.IDLE);
                         updateRuntimeState("running", true, true);
-                        Thread.sleep(RECOVERY_BACKOFF_MS);
+                        Thread.sleep(HEALTH_CHECK_INTERVAL_MS);
                         continue;
                     }
 
@@ -413,55 +408,192 @@ public class ServerService extends Service {
     }
 
     private boolean ensureServicesHealthy(int threads) {
-        boolean rpcHealthy = isRpcHealthy();
-        boolean storageHealthy = isStorageHealthy();
-
-        if (rpcHealthy && storageHealthy) {
-            startupHealthFailures = 0;
-        } else if (startupHealthFailures < STARTUP_FAILURES_BEFORE_RESTART) {
-            startupHealthFailures++;
-            Timber.tag(LOG_TAG).i(
-                    "Startup grace health miss %d/%d rpc=%s storage=%s",
-                    startupHealthFailures,
-                    STARTUP_FAILURES_BEFORE_RESTART,
-                    rpcHealthy ? "healthy" : "unhealthy",
-                    storageHealthy ? "healthy" : "unhealthy"
-            );
-            updateRuntimeState("starting", rpcHealthy, storageHealthy);
-            return false;
-        }
-
-        if (!rpcHealthy) {
-            Timber.tag(LOG_TAG).w("RPC unhealthy; attempting restart on port %d", assignedPort);
-            try {
-                restartRpcProcess(threads);
-            } catch (Exception e) {
-                Timber.tag(LOG_TAG).e(e, "RPC restart failed");
-                setLastHealthError(describeError(e, "RPC restart failed"));
+        synchronized (lifecycleLock) {
+            if (isRunning && !isShuttingDown && storageServer == null) {
+                try {
+                    startStorageServer();
+                } catch (Exception e) {
+                    Timber.tag(LOG_TAG).e(e, "Storage server startup failed");
+                    setLastHealthError(describeError(e, "Storage server startup failed"));
+                }
             }
-            rpcHealthy = isRpcHealthy();
-            if (rpcHealthy) {
-                Timber.tag(LOG_TAG).i("RPC restart succeeded");
+            if (isRunning && !isShuttingDown && rpcProcess == null) {
+                try {
+                    startRpcProcess(threads);
+                } catch (Exception e) {
+                    Timber.tag(LOG_TAG).e(e, "RPC process startup failed");
+                    setLastHealthError(describeError(e, "RPC process startup failed"));
+                }
             }
         }
 
-        if (!storageHealthy) {
-            Timber.tag(LOG_TAG).w("Storage unhealthy; attempting restart on port %d", storagePort);
+        boolean rpcProbe = isRpcHealthy();
+        boolean rpcWithinGrace = isRpcWithinStartupGrace();
+        boolean storageProbeSkipped = isStorageProbeSkipped();
+        boolean storageProbe = storageProbeSkipped || probeStorageHttp();
+        boolean storageWithinGrace = isStorageWithinStartupGrace();
+
+        updateRpcProbeFailureCounter(rpcProbe, rpcWithinGrace);
+        updateStorageProbeFailureCounter(storageProbe, storageWithinGrace, storageProbeSkipped);
+
+        boolean rpcHealthy = isRpcConsideredHealthy(rpcProbe, rpcWithinGrace);
+        boolean storageHealthy = isStorageConsideredHealthy(storageProbe, storageWithinGrace);
+        boolean rpcNeedsRestart = rpcNeedsRestart(rpcWithinGrace);
+        boolean storageNeedsRestart = storageNeedsRestart(storageWithinGrace);
+
+        Timber.tag(LOG_TAG).d(
+                "Health check rpc_probe=%s storage_probe=%s storage_probe_skipped=%s rpc_grace=%s storage_grace=%s rpc_failures=%d storage_failures=%d rpc_healthy=%s storage_healthy=%s",
+                rpcProbe,
+                storageProbe,
+                storageProbeSkipped,
+                rpcWithinGrace,
+                storageWithinGrace,
+                consecutiveRpcProbeFailures,
+                consecutiveStorageProbeFailures,
+                rpcHealthy,
+                storageHealthy);
+
+        if (storageNeedsRestart) {
+            Timber.tag(LOG_TAG).w(
+                    "Storage unhealthy after %d probe failures; attempting restart on port %d",
+                    consecutiveStorageProbeFailures,
+                    storagePort);
+            consecutiveStorageProbeFailures = 0;
             try {
                 restartStorageServer();
             } catch (Exception e) {
                 Timber.tag(LOG_TAG).e(e, "Storage restart failed");
                 setLastHealthError(describeError(e, "Storage restart failed"));
             }
-            storageHealthy = isStorageHealthy();
+            storageProbeSkipped = isStorageProbeSkipped();
+            storageProbe = storageProbeSkipped || probeStorageHttp();
+            storageWithinGrace = isStorageWithinStartupGrace();
+            updateStorageProbeFailureCounter(storageProbe, storageWithinGrace, storageProbeSkipped);
+            storageHealthy = isStorageConsideredHealthy(storageProbe, storageWithinGrace);
             if (storageHealthy) {
                 Timber.tag(LOG_TAG).i("Storage restart succeeded");
             }
         }
 
-        startupHealthFailures = 0;
+        if (rpcNeedsRestart) {
+            Timber.tag(LOG_TAG).w(
+                    "RPC unhealthy after %d probe failures; attempting restart on port %d",
+                    consecutiveRpcProbeFailures,
+                    assignedPort);
+            consecutiveRpcProbeFailures = 0;
+            try {
+                restartRpcProcess(threads);
+            } catch (Exception e) {
+                Timber.tag(LOG_TAG).e(e, "RPC restart failed");
+                setLastHealthError(describeError(e, "RPC restart failed"));
+            }
+            rpcProbe = isRpcHealthy();
+            rpcWithinGrace = isRpcWithinStartupGrace();
+            updateRpcProbeFailureCounter(rpcProbe, rpcWithinGrace);
+            rpcHealthy = isRpcConsideredHealthy(rpcProbe, rpcWithinGrace);
+            if (rpcHealthy) {
+                Timber.tag(LOG_TAG).i("RPC restart succeeded");
+            }
+        }
+
         updateRuntimeState(rpcHealthy && storageHealthy ? "running" : "recovering", rpcHealthy, storageHealthy);
         return rpcHealthy && storageHealthy;
+    }
+
+    private boolean isStorageProbeSkipped() {
+        StorageServer server;
+        synchronized (lifecycleLock) {
+            server = storageServer;
+        }
+        return server != null && server.isBusy();
+    }
+
+    private boolean isStorageWithinStartupGrace() {
+        return storageStartedAtMs > 0L
+                && (System.currentTimeMillis() - storageStartedAtMs) < STARTUP_GRACE_MS;
+    }
+
+    private boolean isRpcWithinStartupGrace() {
+        return rpcStartedAtMs > 0L
+                && (System.currentTimeMillis() - rpcStartedAtMs) < STARTUP_GRACE_MS;
+    }
+
+    private void updateRpcProbeFailureCounter(boolean rpcProbe, boolean rpcWithinGrace) {
+        Process process;
+        synchronized (lifecycleLock) {
+            process = rpcProcess;
+        }
+        if (process == null) {
+            consecutiveRpcProbeFailures = 0;
+            return;
+        }
+        if (rpcProbe || rpcWithinGrace) {
+            consecutiveRpcProbeFailures = 0;
+        } else {
+            consecutiveRpcProbeFailures++;
+        }
+    }
+
+    private boolean isRpcConsideredHealthy(boolean rpcProbe, boolean rpcWithinGrace) {
+        Process process;
+        synchronized (lifecycleLock) {
+            process = rpcProcess;
+        }
+        if (process == null) {
+            return false;
+        }
+        return rpcProbe
+                || rpcWithinGrace
+                || consecutiveRpcProbeFailures < HEALTH_CHECK_FAILURE_THRESHOLD;
+    }
+
+    private boolean rpcNeedsRestart(boolean rpcWithinGrace) {
+        Process process;
+        synchronized (lifecycleLock) {
+            process = rpcProcess;
+        }
+        return process != null
+                && !rpcWithinGrace
+                && consecutiveRpcProbeFailures >= HEALTH_CHECK_FAILURE_THRESHOLD;
+    }
+
+    private void updateStorageProbeFailureCounter(boolean storageProbe, boolean storageWithinGrace, boolean storageProbeSkipped) {
+        StorageServer server;
+        synchronized (lifecycleLock) {
+            server = storageServer;
+        }
+        if (server == null) {
+            consecutiveStorageProbeFailures = 0;
+            return;
+        }
+        if (storageProbe || storageWithinGrace || storageProbeSkipped) {
+            consecutiveStorageProbeFailures = 0;
+        } else {
+            consecutiveStorageProbeFailures++;
+        }
+    }
+
+    private boolean isStorageConsideredHealthy(boolean storageProbe, boolean storageWithinGrace) {
+        StorageServer server;
+        synchronized (lifecycleLock) {
+            server = storageServer;
+        }
+        if (server == null) {
+            return false;
+        }
+        return storageProbe
+                || storageWithinGrace
+                || consecutiveStorageProbeFailures < HEALTH_CHECK_FAILURE_THRESHOLD;
+    }
+
+    private boolean storageNeedsRestart(boolean storageWithinGrace) {
+        StorageServer server;
+        synchronized (lifecycleLock) {
+            server = storageServer;
+        }
+        return server != null
+                && !storageWithinGrace
+                && consecutiveStorageProbeFailures >= HEALTH_CHECK_FAILURE_THRESHOLD;
     }
 
     private void updateRuntimeState(String state, boolean rpcHealthy, boolean storageHealthy) {
@@ -512,6 +644,8 @@ public class ServerService extends Service {
             stopStorageServerLocked();
             storageServer = new StorageServer(storagePort, storageDir);
             storageServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+            storageStartedAtMs = System.currentTimeMillis();
+            consecutiveStorageProbeFailures = 0;
             Timber.tag(LOG_TAG).i("Storage server started on port %d serving %s", storagePort, storageDir.getAbsolutePath());
         }
     }
@@ -531,6 +665,8 @@ public class ServerService extends Service {
                 Timber.tag(LOG_TAG).w(e, "Error while stopping storage server");
             } finally {
                 storageServer = null;
+                storageStartedAtMs = 0L;
+                consecutiveStorageProbeFailures = 0;
             }
         }
     }
@@ -551,9 +687,14 @@ public class ServerService extends Service {
             }
             stopRpcProcessLocked();
 
-            Timber.tag(LOG_TAG).i("Starting RPC server process on %s:%d", host, assignedPort);
-            String libDir = getApplicationInfo().nativeLibraryDir;
-            String executablePath = libDir + "/librpc-server.so";
+            SettingsRepository settings = new SettingsRepository(this);
+            boolean verboseRpcLogging = settings.isVerboseRpcLogging();
+            Timber.tag(LOG_TAG).i(
+                    "Starting RPC server process on %s:%d verbose=%s",
+                    host,
+                    assignedPort,
+                    verboseRpcLogging);
+            String executablePath = getApplicationInfo().nativeLibraryDir + "/librpc-server.so";
             ProcessBuilder pb = new ProcessBuilder(
                     executablePath,
                     "0.0.0.0",
@@ -566,8 +707,12 @@ public class ServerService extends Service {
             env.put("HOME", getFilesDir().getAbsolutePath());
             env.put("TMPDIR", getCacheDir().getAbsolutePath());
             env.put("LLAMA_CACHE", llamaCacheDir.getAbsolutePath());
-            env.put("GGML_RPC_DEBUG", "1");
-            env.put("LD_LIBRARY_PATH", libDir);
+            if (verboseRpcLogging) {
+                env.put("GGML_RPC_DEBUG", "1");
+            }
+            env.put("LD_LIBRARY_PATH", getApplicationInfo().nativeLibraryDir);
+            rpcStartedAtMs = System.currentTimeMillis();
+            consecutiveRpcProbeFailures = 0;
             pb.redirectErrorStream(true);
             Timber.tag(LOG_TAG).i("RPC process cwd=%s cache=%s", getFilesDir().getAbsolutePath(), llamaCacheDir.getAbsolutePath());
             Timber.tag(LOG_TAG).d("RPC command: %s", pb.command());
@@ -640,6 +785,8 @@ public class ServerService extends Service {
             return;
         }
 
+        rpcStartedAtMs = 0L;
+        consecutiveRpcProbeFailures = 0;
         process.destroy();
         try {
             if (!waitForProcessExit(process, SHUTDOWN_WAIT_MS)) {
@@ -662,24 +809,28 @@ public class ServerService extends Service {
         startRpcProcess(threads);
     }
 
+    /**
+     * RPC liveness is based on the child {@code librpc-server.so} process only.
+     * TCP connect probes are intentionally omitted: ggml-rpc serves one client at a
+     * time and does not accept new connections while inference is running, so a port
+     * check would falsely mark a busy worker as unhealthy.
+     */
     private boolean isRpcHealthy() {
         Process process;
         synchronized (lifecycleLock) {
             process = rpcProcess;
         }
-        if (process == null || !processIsAlive(process)) {
+        if (process == null) {
             return false;
         }
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", assignedPort), HEALTH_CHECK_TIMEOUT_MS);
-            return true;
-        } catch (IOException e) {
-            Timber.tag(LOG_TAG).w(e, "RPC health check failed on port %d", assignedPort);
-            return false;
+        boolean alive = processIsAlive(process);
+        if (!alive) {
+            Timber.tag(LOG_TAG).w("RPC process is not running");
         }
+        return alive;
     }
 
-    private boolean isStorageHealthy() {
+    private boolean probeStorageHttp() {
         URL url;
         try {
             url = new URL("http://127.0.0.1:" + storagePort + "/storage_info");
@@ -704,6 +855,15 @@ public class ServerService extends Service {
                 conn.disconnect();
             }
         }
+    }
+
+    /** Used when the supervisor is not running (e.g. error handlers). */
+    private boolean isStorageHealthy() {
+        if (isStorageProbeSkipped()) {
+            return storageServer != null;
+        }
+        boolean probe = probeStorageHttp();
+        return isStorageConsideredHealthy(probe, isStorageWithinStartupGrace());
     }
 
     private void shutdownService() {

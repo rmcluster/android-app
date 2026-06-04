@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 import timber.log.Timber;
@@ -31,6 +32,12 @@ public class StorageServer extends NanoHTTPD {
     }
 
     private volatile StorageHealth storageHealth;
+    private final AtomicInteger activeRequestCount = new AtomicInteger(0);
+
+    /** True while at least one HTTP request is being handled (chunk transfer, scan, etc.). */
+    public boolean isBusy() {
+        return activeRequestCount.get() > 0;
+    }
 
     //new custom status
     private static final Response.IStatus INSUFFICIENT_STORAGE = new Response.IStatus() {
@@ -44,6 +51,33 @@ public class StorageServer extends NanoHTTPD {
         this.storageDir = storageDir;
     }
 
+    long getUsableSpace() {
+        return storageDir.getUsableSpace();
+    }
+
+    File createTempFile() throws IOException {
+        return File.createTempFile("chunk", ".tmp", storageDir);
+    }
+
+    boolean deleteFile(File file) {
+        return file.delete();
+    }
+
+    boolean renameFile(File source, File target) {
+        return source.renameTo(target);
+    }
+
+    File[] listStorageFiles() {
+        return storageDir.listFiles();
+    }
+
+    void moveChunkIntoPlace(File tempFile, File targetFile) throws IOException {
+        if (!renameFile(tempFile, targetFile)) {
+            copyFile(tempFile, targetFile);
+            deleteFile(tempFile);
+        }
+    }
+
     /* HTTP request handler 
      *
      * GET /chunk/{id} - Retrieve chunk by ID (returns 404 if not found or corrupted)
@@ -55,6 +89,15 @@ public class StorageServer extends NanoHTTPD {
     */
     @Override
     public Response serve(IHTTPSession session) {
+        activeRequestCount.incrementAndGet();
+        try {
+            return serveRequest(session);
+        } finally {
+            activeRequestCount.decrementAndGet();
+        }
+    }
+
+    private Response serveRequest(IHTTPSession session) {
         String uri = session.getUri();
         Method method = session.getMethod();
         Timber.tag(TAG).d("Request: %s %s", method, uri);
@@ -123,7 +166,7 @@ public class StorageServer extends NanoHTTPD {
         }
         Timber.tag(TAG).d("PUT chunk %s headers=%s", chunkId, session.getHeaders());
 
-        long remainingBytes = storageDir.getUsableSpace() - contentLength;
+        long remainingBytes = getUsableSpace() - contentLength;
         Timber.tag(TAG).i("Receiving chunk %s into %s (%s, usable after write %s)",
                 chunkId,
                 storageDir.getAbsolutePath(),
@@ -133,7 +176,7 @@ public class StorageServer extends NanoHTTPD {
         if (remainingBytes < 50 * 1024 * 1024) {
             Timber.tag(TAG).e("Rejecting chunk %s because storage would fall below reserve: usable=%s content=%s",
                     chunkId,
-                    humanBytes(storageDir.getUsableSpace()),
+                    humanBytes(getUsableSpace()),
                     humanBytes(contentLength));
             return jsonResponse(INSUFFICIENT_STORAGE, new JSONObject().put("error", "insufficient_storage"));
         }
@@ -141,7 +184,7 @@ public class StorageServer extends NanoHTTPD {
         Map<String, String> files = new HashMap<>();
         File tempFile;
         if (contentLength == 0) {
-            tempFile = File.createTempFile("chunk", ".tmp", storageDir);
+            tempFile = createTempFile();
         } else {
             session.parseBody(files);
             String tempFilePath = files.get("content");
@@ -154,7 +197,7 @@ public class StorageServer extends NanoHTTPD {
                     Timber.tag(TAG).e("PUT %s did not include content payload", chunkId);
                     return jsonResponse(Response.Status.BAD_REQUEST, new JSONObject().put("error", "missing_content"));
                 }
-                tempFile = File.createTempFile("chunk", ".tmp", storageDir);
+                tempFile = createTempFile();
                 try (FileOutputStream fos = new FileOutputStream(tempFile)) {
                     fos.write(postData.getBytes("ISO-8859-1"));
                 }
@@ -173,7 +216,7 @@ public class StorageServer extends NanoHTTPD {
         }
 
         File targetFile = new File(storageDir, chunkId);
-        if (!tempFile.renameTo(targetFile)) {
+        if (!renameFile(tempFile, targetFile)) {
             Timber.tag(TAG).w("Rename failed for %s -> %s, copying instead", tempFile.getAbsolutePath(), targetFile.getAbsolutePath());
             copyFile(tempFile, targetFile);
             tempFile.delete();
@@ -192,7 +235,7 @@ public class StorageServer extends NanoHTTPD {
             return jsonResponse(Response.Status.NOT_FOUND, new JSONObject().put("error", "not_found"));
         }
 
-        if (file.delete()) {
+        if (deleteFile(file)) {
             storageHealth = null;
             Timber.tag(TAG).i("Deleted chunk %s at %s (%s)", chunkId, file.getAbsolutePath(), humanBytes(file.length()));
             return newFixedLengthResponse(Response.Status.OK, NanoHTTPD.MIME_PLAINTEXT, "OK");
@@ -235,7 +278,7 @@ public class StorageServer extends NanoHTTPD {
         newHealth.timestamp = now;
         newHealth.badChunks = new ArrayList<>();
 
-        File[] files = storageDir.listFiles();
+        File[] files = listStorageFiles();
         if (files != null) {
             for (File f : files) {
                 if (f.isFile() && SHA256_PATTERN.matcher(f.getName()).matches()) {
@@ -265,7 +308,7 @@ public class StorageServer extends NanoHTTPD {
         long available = storageDir.getUsableSpace();
         long used = 0;
 
-        File[] files = storageDir.listFiles();
+        File[] files = listStorageFiles();
         if (files != null) {
             for (File f : files) {
                 if (f.isFile()) {
